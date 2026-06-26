@@ -21,7 +21,6 @@ export default function HomePage() {
               <p className="lead">Funding, approvals, donors, calls, reports, campaigns, founder memory, and an AI-readable public site. Built once as a shared backend. Customized through the frontend and ICM files for each organization.</p>
               <div className="hero-actions">
                 <a className="cta" href="/login">Open demo cockpit</a>
-                <a className="cta ghost" href="/get-involved">Get involved</a>
                 <a className="cta ghost" href="#offer">View the deployment package</a>
               </div>
             </div>
@@ -37,18 +36,6 @@ export default function HomePage() {
                 ].map(([a,b]) => <div className="preview-row clean" key={a}><span><strong>{a}</strong><small>{b}</small></span><span className="score-chip">Open</span></div>)}
               </div>
             </div>
-          </div>
-        </section>
-
-        <section id="who" className="section">
-          <div className="container">
-            <div className="section-heading"><span className="eyebrow">Who {tenantSite.orgName} serves</span><h2>Seattle youth, sports, and mentorship programs.</h2><p>We serve youth and families across Seattle and King County through sports, mentorship, leadership development, and school partnerships. Donors, sponsors, volunteers, and partner schools all have a clear pathway in.</p></div>
-            <div className="grid cols-3">
-              <Card title="Youth & families" text="Sports, mentorship, leadership, and wellness outcomes for Northwest youth." />
-              <Card title="Donors & sponsors" text="Clear giving pathways, impact updates, and sponsorship packages with full audit trails." />
-              <Card title="Volunteers & partners" text="Apply to volunteer, coach, or partner with a school — all through the public bridge." />
-            </div>
-            <div style={{ marginTop: '2rem', textAlign: 'center' }}><a className="cta" href="/get-involved">Get involved</a></div>
           </div>
         </section>
 
