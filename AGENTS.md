@@ -26,6 +26,20 @@ Do not replace ICM with a hidden swarm. The operating system is the folder struc
 
 No automated red/orange action without human approval. Youth, grant submissions, public claims, donor outreach, legal/financial work, outbound calls, and browser applications are approval-gated.
 
+## Code navigation — jcodemunch-mcp
+
+This workspace ships a `.vscode/mcp.json` that registers the `jcodemunch` MCP server (installed on demand via `uvx` from `https://github.com/jgravelle/jcodemunch-mcp.git`).
+
+When the `jcodemunch` server is available, prefer it for code lookup over brute-reading files:
+
+- Find a symbol by name → `search_symbols` (not grep across files).
+- Read a function/method/class → `get_symbol_source` (not the whole file).
+- Understand a file → `get_file_outline` before opening it.
+- What imports a file / what breaks if X changes → `find_importers` / `get_blast_radius`.
+- Opening move on any task → `plan_turn` for confidence-guided routing.
+
+Fall back to `Read` only when editing a file (the harness requires a read before edit) or when jcodemunch is not running.
+
 ## Coding loop
 
 1. Read docs and existing conventions.

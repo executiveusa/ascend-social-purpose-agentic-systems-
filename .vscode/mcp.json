@@ -1,0 +1,17 @@
+{
+  "servers": {
+    "jcodemunch": {
+      "type": "stdio",
+      "command": "uvx",
+      "args": [
+        "--from",
+        "git+https://github.com/jgravelle/jcodemunch-mcp.git",
+        "jcodemunch-mcp"
+      ],
+      "env": {
+        "JCODEMUNCH_LOG_LEVEL": "WARNING",
+        "JCODEMUNCH_SHARE_SAVINGS": "0"
+      }
+    }
+  }
+}

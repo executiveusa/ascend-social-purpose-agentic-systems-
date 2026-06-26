@@ -1,0 +1,14 @@
+// .jcodemunch.jsonc — project-level jcodemunch-mcp config
+// Merges over ~/.code-index/config.jsonc. See CONFIGURATION.md in the
+// jcodemunch-mcp repo for the full key reference.
+{
+  // Small repo → lean tool surface keeps the per-turn schema footprint low.
+  "tool_profile": "core",
+  "compact_schemas": true,
+  // Opt out of the anonymous community savings meter.
+  "share_savings": false,
+  // Trust the workspace root so indexing this repo does not prompt.
+  "trusted_folders": ["."],
+  "max_folder_files": 2000,
+  "max_index_files": 10000
+}

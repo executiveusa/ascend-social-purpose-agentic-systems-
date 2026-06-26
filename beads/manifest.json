@@ -1,0 +1,11 @@
+{
+  "project": "ascend-social-purpose-agentic-systems-",
+  "version": "0.5.0",
+  "beads": [
+    { "id": "bead-0001", "title": "repo inventory", "status": "complete", "file": "checkpoints/0001-repo-inventory.md" },
+    { "id": "bead-0002", "title": "skills discovered and activated", "status": "complete", "file": "checkpoints/0002-skill-ingestion.md" },
+    { "id": "bead-0008", "title": "build/test result", "status": "complete", "file": "checkpoints/0008-build-test.md" },
+    { "id": "bead-0009", "title": "browser verification", "status": "complete", "file": "checkpoints/0009-browser-verification.md" },
+    { "id": "bead-0010", "title": "PR/review/merge status", "status": "complete", "file": "checkpoints/0010-pr-review-merge.md" }
+  ]
+}
