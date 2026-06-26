@@ -1,0 +1,13 @@
+{
+  "policy": "deny-by-default",
+  "tools": [
+    { "name": "gmail.read", "risk": "yellow", "allowed": true, "approvalRequired": false },
+    { "name": "gmail.send", "risk": "orange", "allowed": true, "approvalRequired": true },
+    { "name": "calendar.read", "risk": "green", "allowed": true, "approvalRequired": false },
+    { "name": "calendar.create", "risk": "orange", "allowed": true, "approvalRequired": true },
+    { "name": "drive.read", "risk": "yellow", "allowed": true, "approvalRequired": false },
+    { "name": "browser.applyGrant", "risk": "red", "allowed": true, "approvalRequired": true },
+    { "name": "postiz.schedule", "risk": "orange", "allowed": true, "approvalRequired": true },
+    { "name": "twilio.outboundCall", "risk": "orange", "allowed": true, "approvalRequired": true }
+  ]
+}

@@ -1,0 +1,13 @@
+{
+  email admin@asc3nd.org
+}
+
+api.asc3nd.org {
+  encode gzip zstd
+  reverse_proxy mission-api:4000
+}
+
+asc3nd.org {
+  encode gzip zstd
+  reverse_proxy site:3000
+}

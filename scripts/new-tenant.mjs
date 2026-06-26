@@ -1,0 +1,10 @@
+import fs from 'node:fs';
+import path from 'node:path';
+const tenantId = process.argv[2];
+const orgName = process.argv.slice(3).join(' ') || tenantId;
+if (!tenantId) throw new Error('Usage: node scripts/new-tenant.mjs <tenant-id> <Org Name>');
+const root = path.resolve('icm/tenants', tenantId);
+fs.mkdirSync(root, { recursive: true });
+fs.cpSync('icm/tenant-template', root, { recursive: true });
+fs.writeFileSync(path.join(root, 'AGENT.md'), `# ${orgName} Mission Agent\n\nUse ICM. Require approvals.\n`);
+console.log(`Created ${root}`);

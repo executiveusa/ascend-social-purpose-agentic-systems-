@@ -1,0 +1,8 @@
+{
+  "manifest_version": 3,
+  "name": "Mission OS LLM Importer",
+  "version": "0.1.0",
+  "description": "Import user-owned LLM conversation exports into Mission OS Second Brain.",
+  "permissions": ["storage"],
+  "action": { "default_popup": "popup.html" }
+}

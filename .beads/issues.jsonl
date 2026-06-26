@@ -1,0 +1,5 @@
+{"id":"A3OS-001","title":"Connect real Postiz adapter","status":"open","type":"integration","priority":"medium"}
+{"id":"A3OS-002","title":"Swap file store for Postgres repository","status":"open","type":"backend","priority":"medium"}
+{"id":"A3OS-003","title":"Add Playwright browser grant task runner in Sandcastle","status":"open","type":"agent","priority":"high"}
+{"id":"A3OS-004","title":"Add Composio/MCP allowlist manager","status":"open","type":"security","priority":"high"}
+{"id":"A3OS-005","title":"Add multi-tenant domain/theme manager","status":"open","type":"frontend","priority":"medium"}

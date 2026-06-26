@@ -1,0 +1,9 @@
+{
+  "id": "mission-os-sync",
+  "name": "Mission OS Sync",
+  "version": "0.1.0",
+  "minAppVersion": "1.5.0",
+  "description": "Sync founder vault notes into Mission OS.",
+  "author": "Asc3nd Social Purpose OS",
+  "isDesktopOnly": false
+}

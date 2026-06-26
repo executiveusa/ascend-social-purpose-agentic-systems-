@@ -1,0 +1,32 @@
+services:
+  mission-core-rs:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.rust
+      args:
+        BIN: mission-core-rs
+    environment:
+      DATABASE_URL: postgres://mission:mission@postgres:5432/mission_os
+    depends_on: [postgres]
+    ports: ["4100:4100"]
+
+  mission-connect-rs:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.rust
+      args:
+        BIN: mission-connect-rs
+    environment:
+      DATABASE_URL: postgres://mission:mission@postgres:5432/mission_os
+    depends_on: [postgres]
+    ports: ["4200:4200"]
+
+  mission-worker-rs:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.rust
+      args:
+        BIN: mission-worker-rs
+    environment:
+      DATABASE_URL: postgres://mission:mission@postgres:5432/mission_os
+    depends_on: [postgres]

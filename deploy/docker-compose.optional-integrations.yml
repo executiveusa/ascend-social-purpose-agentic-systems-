@@ -1,0 +1,11 @@
+# Optional integration services. Enable only after reading each project's current docs and setting credentials.
+#
+# services:
+#   litellm:
+#     image: ghcr.io/berriai/litellm:main-latest
+#     ports:
+#       - "4001:4000"
+#     env_file: ../.env
+#
+#   # Postiz self-hosting changes over time. Prefer the official Postiz docs for current image/env values.
+#   # Keep Mission OS connected through POSTIZ_API_URL and POSTIZ_API_KEY instead of coupling the backend to a specific container.

@@ -1,0 +1,8 @@
+{
+  "name": "@asc3nd/tenant-kit",
+  "version": "0.5.0",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.js"
+  }
+}

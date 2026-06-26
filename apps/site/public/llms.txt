@@ -1,0 +1,11 @@
+# Asc3nd Social Purpose OS
+
+> Seattle-native AI operations system for nonprofits, youth programs, sports organizations, and social-purpose companies.
+
+## Key pages
+- / — public site
+- /login — ops login
+- /ops — private mission cockpit
+
+## Summary
+Website + AI operations cockpit + ICM workspace + opportunity engine + founder second brain + social campaign lane + human approval queue.

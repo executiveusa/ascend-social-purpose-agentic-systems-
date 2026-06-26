@@ -1,0 +1,12 @@
+FROM rust:1.84-bookworm AS builder
+ARG BIN=mission-core-rs
+WORKDIR /app
+COPY Cargo.toml ./
+COPY services ./services
+RUN cargo build --release -p ${BIN}
+
+FROM debian:bookworm-slim
+ARG BIN=mission-core-rs
+RUN apt-get update && apt-get install -y ca-certificates && rm -rf /var/lib/apt/lists/*
+COPY --from=builder /app/target/release/${BIN} /usr/local/bin/service
+CMD ["/usr/local/bin/service"]

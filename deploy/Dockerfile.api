@@ -1,0 +1,17 @@
+FROM node:22-alpine AS deps
+WORKDIR /app
+COPY package.json package-lock.json* ./
+COPY packages/core/package.json packages/core/package.json
+COPY services/mission-api/package.json services/mission-api/package.json
+RUN npm install --omit=dev
+
+FROM node:22-alpine
+WORKDIR /app
+ENV NODE_ENV=production
+COPY --from=deps /app/node_modules ./node_modules
+COPY packages ./packages
+COPY services/mission-api ./services/mission-api
+COPY icm ./icm
+WORKDIR /app/services/mission-api
+EXPOSE 4000
+CMD ["node", "server.js"]

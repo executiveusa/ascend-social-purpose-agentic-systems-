@@ -1,0 +1,47 @@
+{
+  "name": "asc3nd-social-purpose-os",
+  "version": "0.5.0",
+  "private": true,
+  "description": "Production-handoff repeatable ICM-based AI operating system for Northwest nonprofits and social-purpose companies.",
+  "workspaces": [
+    "apps/*",
+    "services/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "concurrently -n api,web -c blue,green \"npm run dev --workspace @asc3nd/mission-api\" \"npm run dev --workspace @asc3nd/site\"",
+    "dev:web": "npm run dev --workspace @asc3nd/site",
+    "dev:api": "npm run dev --workspace @asc3nd/mission-api",
+    "build": "npm run build --workspace @asc3nd/site",
+    "start": "concurrently -n api,web \"npm run start --workspace @asc3nd/mission-api\" \"npm run start --workspace @asc3nd/site\"",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "smoke": "playwright test",
+    "docker:up": "docker compose -f deploy/docker-compose.yml up -d --build",
+    "docker:down": "docker compose -f deploy/docker-compose.yml down",
+    "seed": "node services/mission-api/scripts/seed.js",
+    "zip": "node scripts/make-release.mjs",
+    "doctor": "node scripts/doctor.mjs",
+    "audit:deps": "npm audit --audit-level=high",
+    "verify": "npm test && npm run build && npm run doctor && npm run adamsreview && node missionctl/missionctl.mjs doctor",
+    "missionctl": "node missionctl/missionctl.mjs",
+    "tenant:create": "node missionctl/missionctl.mjs tenant create",
+    "tenant:keys": "node missionctl/missionctl.mjs tenant keys",
+    "frontend:scaffold": "node missionctl/missionctl.mjs frontend scaffold",
+    "smoke:tenant": "node missionctl/missionctl.mjs smoke",
+    "backup": "node missionctl/missionctl.mjs backup",
+    "adamsreview": "node scripts/adamsreview-lite.mjs",
+    "hostinger:handoff": "node missionctl/missionctl.mjs hostinger handoff"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.61.1",
+    "concurrently": "^9.1.0",
+    "vitest": "4.1.9"
+  },
+  "engines": {
+    "node": ">=20.11.0"
+  },
+  "overrides": {
+    "postcss": "8.5.15"
+  }
+}

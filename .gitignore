@@ -1,0 +1,13 @@
+node_modules
+.next
+out
+dist
+.env
+.env.local
+.env.production
+mission-data
+*.log
+.DS_Store
+coverage
+playwright-report
+test-results

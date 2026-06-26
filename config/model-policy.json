@@ -1,0 +1,8 @@
+{
+  "routing": {
+    "cheap": { "useFor": ["extract", "format", "classify", "summarize-short"], "default": "local/qwen2.5:7b" },
+    "standard": { "useFor": ["draft", "compare", "research-synthesis"], "default": "openai/gpt-4.1-mini" },
+    "critical": { "useFor": ["grant-strategy", "youth-safety", "legal-financial-review"], "default": "anthropic/claude-sonnet-4.5" }
+  },
+  "principle": "Cheap tasks must not use expensive models. Red-risk tasks must not auto-execute."
+}

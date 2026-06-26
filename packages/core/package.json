@@ -1,0 +1,20 @@
+{
+  "name": "@asc3nd/core",
+  "version": "0.5.0",
+  "type": "module",
+  "exports": {
+    "./opportunities": "./src/opportunities.js",
+    "./safety": "./src/safety.js",
+    "./model-router": "./src/model-router.js",
+    "./icm": "./src/icm.js",
+    "./llm-imports": "./src/llm-imports.js",
+    "./copy": "./src/copy.js",
+    "./outcomes": "./src/outcomes.js",
+    "./readiness": "./src/readiness.js",
+    "./crm": "./src/crm.js",
+    "./tenant": "./src/tenant.js",
+    "./bridge": "./src/bridge.js",
+    "./outbox": "./src/outbox.js",
+    "./idempotency": "./src/idempotency.js"
+  }
+}

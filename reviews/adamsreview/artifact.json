@@ -1,0 +1,23 @@
+{
+  "reviewId": "mission-os-v05-1782480699839",
+  "tool": "adamsreview-lite",
+  "modeledAfter": "adamjgmiller/adamsreview multi-lens review -> validation -> fix loop -> artifact",
+  "createdAt": "2026-06-26T13:31:39.832Z",
+  "lenses": [
+    "repeatability",
+    "bridge",
+    "security",
+    "safety",
+    "icm",
+    "crm",
+    "handoff"
+  ],
+  "summary": {
+    "totalFindings": 0,
+    "blockers": 0,
+    "high": 0,
+    "medium": 0,
+    "verdict": "release_candidate"
+  },
+  "findings": []
+}

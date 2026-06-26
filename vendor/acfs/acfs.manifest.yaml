@@ -1,0 +1,3691 @@
+# ACFS Module Manifest
+# Single source of truth for all tools installed by the Agentic Coding Flywheel Setup
+# Version: 2
+version: 2
+name: agentic_coding_flywheel_setup
+id: acfs
+
+defaults:
+  user: ubuntu
+  workspace_root: /data/projects
+  mode: vibe
+
+modules:
+  # ============================================================
+  # PHASE 1: Base dependencies (apt packages)
+  # ============================================================
+  - id: base.system
+    description: Base packages + sane defaults
+    category: base
+    phase: 1
+    run_as: root
+    optional: false
+    enabled_by_default: true
+    tags: [critical]
+    installed_check:
+      run_as: current
+      command: "command -v curl && command -v git && command -v jq"
+    install:
+      - apt-get update -y
+      - apt-get install -y curl git ca-certificates unzip tar xz-utils jq build-essential gnupg lsb-release
+    verify:
+      - curl --version
+      - git --version
+      - jq --version
+      - gpg --version
+
+  # ============================================================
+  # PHASE 2: User normalization (ORCHESTRATION-ONLY)
+  # ============================================================
+  - id: users.ubuntu
+    description: Ensure target user + passwordless sudo + ssh keys
+    category: users
+    phase: 2
+    run_as: root
+    optional: false
+    enabled_by_default: true
+    generated: false
+    tags: [orchestration, critical]
+    notes:
+      - "Ensure TARGET_USER exists with the expected home directory"
+      - "Write /etc/sudoers.d/90-ubuntu-acfs with passwordless sudo for TARGET_USER in vibe mode"
+      - "Copy authorized_keys from invoking user to TARGET_HOME/.ssh/"
+    install: []
+    verify:
+      - "id \"${TARGET_USER:-ubuntu}\""
+      - "[[ \"${MODE:-vibe}\" != \"vibe\" ]] || runuser -u \"${TARGET_USER:-ubuntu}\" -- sudo -n true"
+
+  # ============================================================
+  # PHASE 3: Filesystem setup
+  # ============================================================
+  - id: base.filesystem
+    description: Create workspace and ACFS directories
+    category: filesystem
+    phase: 3
+    run_as: root
+    optional: false
+    enabled_by_default: true
+    tags: [critical]
+    dependencies:
+      - users.ubuntu
+    installed_check:
+      run_as: target_user
+      command: "test -d /data/projects && test -d ~/.acfs"
+    install:
+      - |
+          # Hardening: refuse to operate on symlinked workspace paths.
+          # Prevents symlink tricks like /data -> / or /data/projects -> /etc.
+          for p in /data /data/projects /data/cache; do
+            if [[ -e "$p" && -L "$p" ]]; then
+              echo "ERROR: Refusing to use symlinked path: $p" >&2
+              exit 1
+            fi
+          done
+
+          mkdir -p /data/projects /data/cache
+          chown -h "${TARGET_USER:-ubuntu}:${TARGET_USER:-ubuntu}" /data /data/projects /data/cache
+      - |
+          # Install AGENTS.md template to workspace root for agent guidance
+          ACFS_RAW="${ACFS_RAW:-https://raw.githubusercontent.com/Dicklesworthstone/agentic_coding_flywheel_setup/${ACFS_REF:-main}}"
+          CURL_ARGS=(-fsSL)
+          if curl --help all 2>/dev/null | grep -q -- '--proto'; then
+            CURL_ARGS=(--proto '=https' --proto-redir '=https' -fsSL)
+          fi
+          curl "${CURL_ARGS[@]}" -o /data/projects/AGENTS.md "${ACFS_RAW}/acfs/AGENTS.md" || true
+          chown "${TARGET_USER:-ubuntu}:${TARGET_USER:-ubuntu}" /data/projects/AGENTS.md 2>/dev/null || true
+      - |
+          target_home=""
+          explicit_target_home="${TARGET_HOME:-}"
+          if [[ -n "$explicit_target_home" ]]; then
+            explicit_target_home="${explicit_target_home%/}"
+          fi
+          if [[ "${TARGET_USER:-ubuntu}" == "root" ]]; then
+            target_home="/root"
+          else
+            _acfs_passwd_entry="$(acfs_generated_getent_passwd_entry "${TARGET_USER:-ubuntu}" 2>/dev/null || true)"
+            if [[ -n "$_acfs_passwd_entry" ]]; then
+              target_home="$(acfs_generated_passwd_home_from_entry "$_acfs_passwd_entry" 2>/dev/null || true)"
+            else
+              current_user="$(acfs_generated_resolve_current_user 2>/dev/null || true)"
+              current_home="${HOME:-}"
+              if [[ -n "$current_home" ]]; then
+                current_home="${current_home%/}"
+              fi
+              if [[ -n "$current_user" ]] && [[ "$current_user" == "${TARGET_USER:-ubuntu}" ]] && [[ -n "$current_home" ]] && [[ "$current_home" == /* ]] && [[ "$current_home" != "/" ]] && { [[ -z "$explicit_target_home" ]] || [[ "$current_home" == "$explicit_target_home" ]]; }; then
+                target_home="$current_home"
+              fi
+              unset current_user current_home
+            fi
+            unset _acfs_passwd_entry
+          fi
+          unset explicit_target_home
+          if [[ -z "$target_home" ]]; then
+            echo "ERROR: Unable to resolve TARGET_HOME for '${TARGET_USER:-ubuntu}'; export TARGET_HOME explicitly" >&2
+            exit 1
+          fi
+          if [[ -z "$target_home" || "$target_home" == "/" || "$target_home" != /* ]]; then
+            echo "ERROR: Invalid TARGET_HOME: '${target_home:-<empty>}'" >&2
+            exit 1
+          fi
+          if [[ -e "$target_home/.acfs" && -L "$target_home/.acfs" ]]; then
+            echo "ERROR: Refusing to use symlinked ACFS dir: $target_home/.acfs" >&2
+            exit 1
+          fi
+
+          mkdir -p "$target_home/.acfs"
+          chown -hR "${TARGET_USER:-ubuntu}:${TARGET_USER:-ubuntu}" "$target_home/.acfs"
+    verify:
+      - test -d /data/projects
+      - test -f /data/projects/AGENTS.md
+      - |
+          # Resolve TARGET_HOME using generated helper functions. Doctor
+          # injects these helpers for manifest checks that reference
+          # acfs_generated_* functions, so this stays consistent with
+          # installer target-home resolution and avoids inherited HOME leaks.
+          explicit_target_home="${TARGET_HOME:-}"
+          if [[ -n "$explicit_target_home" ]]; then
+            explicit_target_home="${explicit_target_home%/}"
+          fi
+          target_home=""
+          if [[ "${TARGET_USER:-ubuntu}" == "root" ]]; then
+            target_home="/root"
+          else
+            _acfs_passwd_entry="$(acfs_generated_getent_passwd_entry "${TARGET_USER:-ubuntu}" 2>/dev/null || true)"
+            if [[ -n "$_acfs_passwd_entry" ]]; then
+              target_home="$(acfs_generated_passwd_home_from_entry "$_acfs_passwd_entry" 2>/dev/null || true)"
+            else
+              current_user="$(acfs_generated_resolve_current_user 2>/dev/null || true)"
+              current_home="${HOME:-}"
+              if [[ -n "$current_home" ]]; then
+                current_home="${current_home%/}"
+              fi
+              if [[ -n "$current_user" ]] && [[ "$current_user" == "${TARGET_USER:-ubuntu}" ]] && [[ -n "$current_home" ]] && [[ "$current_home" == /* ]] && [[ "$current_home" != "/" ]] && { [[ -z "$explicit_target_home" ]] || [[ "$current_home" == "$explicit_target_home" ]]; }; then
+                target_home="$current_home"
+              fi
+              unset current_user current_home
+            fi
+            unset _acfs_passwd_entry
+          fi
+          unset explicit_target_home
+          if [[ -z "$target_home" ]] || [[ "$target_home" == "/" ]] || [[ "$target_home" != /* ]]; then
+            echo "ERROR: Unable to resolve TARGET_HOME for '${TARGET_USER:-ubuntu}'; export TARGET_HOME explicitly (got: '${target_home:-<empty>}')" >&2
+            exit 1
+          fi
+          test -d "$target_home/.acfs"
+    notes:
+      - "~/.acfs created during filesystem phase"
+      - "AGENTS.md template installed to /data/projects for agent guidance"
+
+  # ============================================================
+  # PHASE 4: Shell setup (zsh + oh-my-zsh + p10k)
+  # ============================================================
+  - id: shell.zsh
+    description: Zsh shell package
+    category: shell
+    phase: 4
+    run_as: root
+    optional: false
+    enabled_by_default: true
+    tags: [critical, shell-ux]
+    dependencies:
+      - base.system
+      - base.filesystem
+    installed_check:
+      run_as: current
+      command: "command -v zsh"
+    install:
+      - apt-get install -y zsh
+    verify:
+      - zsh --version
+
+  - id: shell.omz
+    description: Oh My Zsh + Powerlevel10k + plugins + ACFS config
+    category: shell
+    phase: 4
+    run_as: target_user
+    optional: false
+    enabled_by_default: true
+    tags: [critical, shell-ux]
+    dependencies:
+      - shell.zsh
+    installed_check:
+      run_as: target_user
+      command: "test -d ~/.oh-my-zsh && test -f ~/.acfs/zsh/acfs.zshrc"
+    verified_installer:
+      tool: ohmyzsh
+      runner: sh
+      args: ["--", "--unattended", "--keep-zshrc"]
+    install:
+      - |
+        # Install Powerlevel10k
+        if [[ ! -d ~/.oh-my-zsh/custom/themes/powerlevel10k ]]; then
+          git clone --depth=1 https://github.com/romkatv/powerlevel10k.git ~/.oh-my-zsh/custom/themes/powerlevel10k
+        fi
+      - |
+        # Install zsh-autosuggestions
+        if [[ ! -d ~/.oh-my-zsh/custom/plugins/zsh-autosuggestions ]]; then
+          git clone https://github.com/zsh-users/zsh-autosuggestions ~/.oh-my-zsh/custom/plugins/zsh-autosuggestions
+        fi
+      - |
+        # Install zsh-syntax-highlighting
+        if [[ ! -d ~/.oh-my-zsh/custom/plugins/zsh-syntax-highlighting ]]; then
+          git clone https://github.com/zsh-users/zsh-syntax-highlighting.git ~/.oh-my-zsh/custom/plugins/zsh-syntax-highlighting
+        fi
+      - |
+        # Install ACFS zshrc
+        ACFS_RAW="${ACFS_RAW:-https://raw.githubusercontent.com/Dicklesworthstone/agentic_coding_flywheel_setup/${ACFS_REF:-main}}"
+        mkdir -p ~/.acfs/zsh
+        CURL_ARGS=(-fsSL)
+        if curl --help all 2>/dev/null | grep -q -- '--proto'; then
+          CURL_ARGS=(--proto '=https' --proto-redir '=https' -fsSL)
+        fi
+        curl "${CURL_ARGS[@]}" -o ~/.acfs/zsh/acfs.zshrc "${ACFS_RAW}/acfs/zsh/acfs.zshrc"
+      - |
+        # Install ACFS shell completions (zsh)
+        ACFS_RAW="${ACFS_RAW:-https://raw.githubusercontent.com/Dicklesworthstone/agentic_coding_flywheel_setup/${ACFS_REF:-main}}"
+        mkdir -p ~/.acfs/completions
+        CURL_ARGS=(-fsSL)
+        if curl --help all 2>/dev/null | grep -q -- '--proto'; then
+          CURL_ARGS=(--proto '=https' --proto-redir '=https' -fsSL)
+        fi
+        curl "${CURL_ARGS[@]}" -o ~/.acfs/completions/_acfs "${ACFS_RAW}/scripts/completions/_acfs"
+        # Also install bash completions for users who switch shells
+        curl "${CURL_ARGS[@]}" -o ~/.acfs/completions/acfs.bash "${ACFS_RAW}/scripts/completions/acfs.bash"
+      - |
+        # Install pre-configured Powerlevel10k settings (prevents config wizard on first login)
+        ACFS_RAW="${ACFS_RAW:-https://raw.githubusercontent.com/Dicklesworthstone/agentic_coding_flywheel_setup/${ACFS_REF:-main}}"
+        CURL_ARGS=(-fsSL)
+        if curl --help all 2>/dev/null | grep -q -- '--proto'; then
+          CURL_ARGS=(--proto '=https' --proto-redir '=https' -fsSL)
+        fi
+        curl "${CURL_ARGS[@]}" -o ~/.p10k.zsh "${ACFS_RAW}/acfs/zsh/p10k.zsh"
+      - |
+        # Setup loader .zshrc
+        acfs_zshrc_is_managed_loader() {
+          local file="${1:-}"
+
+          [[ -f "$file" ]] || return 1
+          awk '
+            /^[[:space:]]*$/ { next }
+            { lines[++line_count]=$0 }
+            END {
+              if (line_count == 2 &&
+                  lines[1] ~ /^# ACFS loader/ &&
+                  lines[2] == "source \"$HOME/.acfs/zsh/acfs.zshrc\"") {
+                exit 0
+              }
+              exit 1
+            }
+          ' "$file" 2>/dev/null
+        }
+
+        if [[ -f ~/.zshrc ]] && ! acfs_zshrc_is_managed_loader ~/.zshrc; then
+          mv ~/.zshrc ~/.zshrc.bak.$(date +%s)
+        fi
+        echo '# ACFS loader' > ~/.zshrc
+        echo 'source "$HOME/.acfs/zsh/acfs.zshrc"' >> ~/.zshrc
+      - |
+        # Setup ~/.profile for bash login shells (prevents PATH warnings from installers)
+        profile_path_has_fragment() {
+          local file="${1:-}"
+          local fragment="${2:-}"
+
+          [[ -n "$file" && -n "$fragment" && -f "$file" ]] || return 1
+          awk -v fragment="$fragment" '
+            /^[[:space:]]*#/ { next }
+            /^[[:space:]]*(export[[:space:]]+)?PATH[[:space:]]*=/ && index($0, fragment) { found=1; exit }
+            END { exit(found ? 0 : 1) }
+          ' "$file" 2>/dev/null
+        }
+
+        legacy_profile_path_line='export PATH="$HOME/.local/bin:$HOME/.cargo/bin:$HOME/.bun/bin:$PATH"'
+        profile_path_line='export PATH="$HOME/.local/bin:$HOME/.cargo/bin:$HOME/.bun/bin:$HOME/.atuin/bin:$PATH"'
+        if [[ ! -f ~/.profile ]]; then
+          echo '# ~/.profile: executed by bash for login shells' > ~/.profile
+          echo '' >> ~/.profile
+          echo '# User binary paths' >> ~/.profile
+          echo "$profile_path_line" >> ~/.profile
+        elif grep -Fxq "$legacy_profile_path_line" ~/.profile; then
+          sed -i "s|^$(printf '%s' "$legacy_profile_path_line" | sed 's/[][\\.^$*|]/\\&/g')$|$profile_path_line|" ~/.profile
+        elif ! profile_path_has_fragment ~/.profile '.local/bin' || ! profile_path_has_fragment ~/.profile '.atuin/bin'; then
+          echo '' >> ~/.profile
+          echo '# Added by ACFS - user binary paths' >> ~/.profile
+          echo "$profile_path_line" >> ~/.profile
+        fi
+      - |
+        # Setup ~/.zprofile for zsh login shells (zsh does NOT read ~/.profile)
+        profile_path_has_fragment() {
+          local file="${1:-}"
+          local fragment="${2:-}"
+
+          [[ -n "$file" && -n "$fragment" && -f "$file" ]] || return 1
+          awk -v fragment="$fragment" '
+            /^[[:space:]]*#/ { next }
+            /^[[:space:]]*(export[[:space:]]+)?PATH[[:space:]]*=/ && index($0, fragment) { found=1; exit }
+            END { exit(found ? 0 : 1) }
+          ' "$file" 2>/dev/null
+        }
+
+        legacy_profile_path_line='export PATH="$HOME/.local/bin:$HOME/.cargo/bin:$HOME/.bun/bin:$PATH"'
+        profile_path_line='export PATH="$HOME/.local/bin:$HOME/.cargo/bin:$HOME/.bun/bin:$HOME/.atuin/bin:$PATH"'
+        if [[ ! -f ~/.zprofile ]]; then
+          echo '# ~/.zprofile: executed by zsh for login shells' > ~/.zprofile
+          echo '' >> ~/.zprofile
+          echo '# User binary paths' >> ~/.zprofile
+          echo "$profile_path_line" >> ~/.zprofile
+        elif grep -Fxq "$legacy_profile_path_line" ~/.zprofile; then
+          sed -i "s|^$(printf '%s' "$legacy_profile_path_line" | sed 's/[][\\.^$*|]/\\&/g')$|$profile_path_line|" ~/.zprofile
+        elif ! profile_path_has_fragment ~/.zprofile '.local/bin' || ! profile_path_has_fragment ~/.zprofile '.atuin/bin'; then
+          echo '' >> ~/.zprofile
+          echo '# Added by ACFS - user binary paths' >> ~/.zprofile
+          echo "$profile_path_line" >> ~/.zprofile
+        fi
+      - |
+        # Set default shell
+        acfs_external_shell_handoff_configured() {
+          local bashrc_path="${1:-}"
+          [[ -n "$bashrc_path" && -f "$bashrc_path" ]] || return 1
+
+          awk '
+              $0 == "# ACFS externally-managed shell handoff" { marker=1; next }
+              marker && $0 ~ /^[[:space:]]*#/ { next }
+              marker && index($0, "command -v zsh") && index($0, "ACFS_ZSH_HANDOFF_ACTIVE") { found=1; exit }
+              marker && $0 !~ /^[[:space:]]*$/ { marker=0 }
+              END { exit(found ? 0 : 1) }
+          ' "$bashrc_path" 2>/dev/null
+        }
+
+        if [[ "$SHELL" != */zsh ]]; then
+          zsh_path="$(command -v zsh || true)"
+          if [[ -z "$zsh_path" ]]; then
+            echo "WARN: zsh not found; cannot set default shell automatically." >&2
+            exit 0
+          fi
+          current_user="$(acfs_generated_resolve_current_user 2>/dev/null || true)"
+          if [[ -z "$current_user" ]]; then
+            echo "WARN: Unable to resolve current user; skipping default shell change." >&2
+            exit 0
+          fi
+          passwd_entry="$(acfs_generated_getent_passwd_entry "$current_user" 2>/dev/null || true)"
+          local_entry=""
+          if [[ -r /etc/passwd ]]; then
+            local_entry="$(awk -F: -v user="$current_user" '$1 == user { print $0; exit }' /etc/passwd 2>/dev/null || true)"
+          fi
+          if [[ -n "$passwd_entry" ]] && [[ -z "$local_entry" ]]; then
+            if ! acfs_external_shell_handoff_configured ~/.bashrc; then
+              if [[ -f ~/.bashrc ]] && [[ -s ~/.bashrc ]]; then
+                last_char="$(tail -c 1 ~/.bashrc | od -An -t u1 | tr -d ' ' 2>/dev/null || true)"
+                if [[ "$last_char" != "10" ]]; then
+                  printf '\n' >> ~/.bashrc
+                fi
+              fi
+              {
+                echo '# ACFS externally-managed shell handoff'
+                echo 'if [[ $- == *i* ]] && [[ -t 0 ]] && command -v zsh >/dev/null 2>&1 && [[ -z "${ACFS_ZSH_HANDOFF_ACTIVE:-}" ]]; then'
+                echo '  export ACFS_ZSH_HANDOFF_ACTIVE=1'
+                echo '  exec "$(command -v zsh)" -l'
+                echo 'fi'
+              } >> ~/.bashrc
+            fi
+            echo "WARN: $current_user is managed outside /etc/passwd; installed a bash-to-zsh handoff instead of using chsh." >&2
+          elif command -v sudo >/dev/null 2>&1 && sudo -n true 2>/dev/null; then
+            sudo chsh -s "$zsh_path" "$current_user"
+          else
+            if [[ -t 0 ]]; then
+              if ! chsh -s "$zsh_path"; then
+                echo "WARN: Could not change default shell automatically. Run: chsh -s $zsh_path" >&2
+              fi
+            else
+              echo "WARN: Skipping shell change (no TTY). Run: chsh -s $zsh_path" >&2
+            fi
+          fi
+        fi
+    verify:
+      - test -d ~/.oh-my-zsh
+      - test -f ~/.acfs/zsh/acfs.zshrc
+      - test -f ~/.p10k.zsh
+    notes:
+      - "Oh My Zsh and plugins installed via verified upstream installers"
+      - "acfs.zshrc written from acfs/ assets"
+      - "Externally managed accounts (for example NSS/OS Login users) get a bash-to-zsh handoff instead of a local chsh"
+      - "Pre-configured p10k theme settings prevent wizard on first login"
+
+  # ============================================================
+  # PHASE 5: CLI tools
+  # ============================================================
+  - id: cli.modern
+    description: Modern CLI tools referenced by the zshrc intent
+    category: cli
+    phase: 5
+    run_as: root
+    optional: false
+    enabled_by_default: true
+    tags: [recommended, cli-modern]
+    dependencies:
+      - base.system
+    installed_check:
+      run_as: current
+      command: "command -v rg && command -v tmux && command -v fzf"
+    install:
+      - apt-get install -y ripgrep tmux fzf direnv jq gh git-lfs lsof dnsutils netcat-openbsd strace rsync
+      - apt-get install -y lsd || true
+      - apt-get install -y eza || true
+      - apt-get install -y bat || apt-get install -y batcat || true
+      - apt-get install -y fd-find || true
+      - apt-get install -y btop || true
+      - apt-get install -y dust || true
+      - apt-get install -y neovim || true
+      - apt-get install -y docker.io docker-compose-plugin || true
+    verify:
+      - rg --version
+      - tmux -V
+      - fzf --version
+      - gh --version
+      - git-lfs version
+      - rsync --version
+      - strace --version
+      - command -v lsof
+      - command -v dig
+      - command -v nc
+      - command -v lsd || command -v eza || true
+
+  - id: tools.lazygit
+    description: Lazygit (apt or binary fallback)
+    category: tools
+    phase: 5
+    run_as: root
+    optional: false
+    enabled_by_default: true
+    tags: [recommended, cli-modern]
+    dependencies:
+      - base.system
+    installed_check:
+      run_as: current
+      command: "command -v lazygit"
+    install:
+      - |
+        if apt-get install -y lazygit; then
+          exit 0
+        fi
+        # Fallback to binary install
+        LG_VER="0.44.1"
+        ARCH=$(uname -m)
+        case "$ARCH" in
+          x86_64) LG_SHA="84682f4ad5a449d0a3ffbc8332200fe8651aee9dd91dcd8d87197ba6c2450dbc" ;;
+          aarch64) LG_SHA="26a435f47b691325c086dad2f84daa6556df5af8efc52b6ed624fa657605c976" ;;
+          *) echo "Unsupported arch for lazygit binary: $ARCH"; exit 0 ;;
+        esac
+        
+        LG_URL="https://github.com/jesseduffield/lazygit/releases/download/v${LG_VER}/lazygit_${LG_VER}_Linux_${ARCH}.tar.gz"
+        TMP_FILE="$(mktemp "${TMPDIR:-/tmp}/acfs_install.XXXXXX")"
+        trap 'rm -f "$TMP_FILE"' EXIT
+        
+        curl -fsSL "$LG_URL" -o "$TMP_FILE"
+        echo "$LG_SHA $TMP_FILE" | sha256sum -c - || { echo "Checksum failed"; rm "$TMP_FILE"; exit 1; }
+        
+        tar -xzf "$TMP_FILE" -C /usr/local/bin lazygit
+        chmod +x /usr/local/bin/lazygit
+        rm "$TMP_FILE"
+    verify:
+      - lazygit --version
+
+  - id: tools.lazydocker
+    description: Lazydocker (binary install)
+    category: tools
+    phase: 5
+    run_as: root
+    optional: false
+    enabled_by_default: true
+    tags: [recommended, cli-modern]
+    dependencies:
+      - base.system
+    installed_check:
+      run_as: current
+      command: "command -v lazydocker"
+    install:
+      - |
+        LD_VER="0.23.3"
+        ARCH=$(uname -m)
+        case "$ARCH" in
+          x86_64) LD_SHA="1f3c7037326973b85cb85447b2574595103185f8ed067b605dd43cc201bc8786" ;;
+          aarch64) LD_SHA="ae7bed0309289396d396b8502b2d78d153a4f8ce8add042f655332241e7eac31" ;;
+          *) echo "Unsupported arch for lazydocker binary: $ARCH"; exit 0 ;;
+        esac
+        
+        LD_URL="https://github.com/jesseduffield/lazydocker/releases/download/v${LD_VER}/lazydocker_${LD_VER}_Linux_${ARCH}.tar.gz"
+        TMP_FILE="$(mktemp "${TMPDIR:-/tmp}/acfs_install.XXXXXX")"
+        trap 'rm -f "$TMP_FILE"' EXIT
+        
+        curl -fsSL "$LD_URL" -o "$TMP_FILE"
+        echo "$LD_SHA $TMP_FILE" | sha256sum -c - || { echo "Checksum failed"; rm "$TMP_FILE"; exit 1; }
+        
+        tar -xzf "$TMP_FILE" -C /usr/local/bin lazydocker
+        chmod +x /usr/local/bin/lazydocker
+        rm "$TMP_FILE"
+    verify:
+      - lazydocker --version
+
+  # Network tools (still Phase 5)
+  - id: network.tailscale
+    description: Zero-config mesh VPN for secure remote VPS access
+    category: network
+    phase: 5
+    run_as: root
+    optional: false
+    enabled_by_default: true
+    tags: [networking, vpn, security, google-sso]
+    dependencies:
+      - base.system
+    installed_check:
+      run_as: current
+      command: "command -v tailscale"
+    install:
+      - |
+        # Add Tailscale apt repository
+        DISTRO_CODENAME=$(lsb_release -cs 2>/dev/null || echo "jammy")
+        # Map newer Ubuntu codenames to supported ones
+        case "$DISTRO_CODENAME" in
+          oracular|plucky|questing) DISTRO_CODENAME="noble" ;;
+        esac
+        CURL_ARGS=(-fsSL)
+        if curl --help all 2>/dev/null | grep -q -- '--proto'; then
+          CURL_ARGS=(--proto '=https' --proto-redir '=https' -fsSL)
+        fi
+        curl "${CURL_ARGS[@]}" "https://pkgs.tailscale.com/stable/ubuntu/${DISTRO_CODENAME}.noarmor.gpg" \
+          | tee /usr/share/keyrings/tailscale-archive-keyring.gpg >/dev/null
+        echo "deb [signed-by=/usr/share/keyrings/tailscale-archive-keyring.gpg] https://pkgs.tailscale.com/stable/ubuntu ${DISTRO_CODENAME} main" \
+          | tee /etc/apt/sources.list.d/tailscale.list
+        apt-get update
+        apt-get install -y tailscale
+        systemctl enable tailscaled
+    verify:
+      - tailscale version
+      - systemctl is-enabled tailscaled
+    docs_url: https://tailscale.com/kb/
+    post_install_message: |
+      Tailscale installed! To connect your VPS to your Tailscale network:
+        sudo tailscale up
+      Then log in with your Google account at the URL shown.
+      Once connected, you can access your VPS via its Tailscale IP or hostname.
+
+  - id: network.ssh_keepalive
+    description: Configure SSH server keepalive to prevent VPN/NAT disconnects
+    category: network
+    phase: 5
+    run_as: root
+    optional: true
+    enabled_by_default: true
+    tags: [networking, remote-dev, ssh]
+    dependencies:
+      - base.system
+    installed_check:
+      run_as: current
+      command: |
+        # Check if ClientAliveInterval is configured (non-zero)
+        grep -qE '^ClientAliveInterval[[:space:]]+[1-9]' /etc/ssh/sshd_config 2>/dev/null
+    install:
+      - |
+        # Backup original sshd_config if not already backed up
+        if [[ ! -f /etc/ssh/sshd_config.acfs.bak ]]; then
+          cp /etc/ssh/sshd_config /etc/ssh/sshd_config.acfs.bak
+        fi
+
+        # Configure SSH keepalive settings
+        # ClientAliveInterval: send keepalive every 60 seconds
+        # ClientAliveCountMax: disconnect after 3 missed (3 minutes of real disconnect)
+
+        # Remove any existing ClientAlive settings
+        sed -i '/^#*ClientAliveInterval/d' /etc/ssh/sshd_config
+        sed -i '/^#*ClientAliveCountMax/d' /etc/ssh/sshd_config
+
+        # Add new settings at the end
+        echo "" >> /etc/ssh/sshd_config
+        echo "# ACFS: SSH keepalive for VPN/NAT resilience" >> /etc/ssh/sshd_config
+        echo "ClientAliveInterval 60" >> /etc/ssh/sshd_config
+        echo "ClientAliveCountMax 3" >> /etc/ssh/sshd_config
+
+        # Reload sshd (doesn't kill existing connections)
+        systemctl reload sshd || systemctl reload ssh || true
+    verify:
+      - grep -E '^ClientAliveInterval[[:space:]]+60' /etc/ssh/sshd_config
+      - grep -E '^ClientAliveCountMax[[:space:]]+3' /etc/ssh/sshd_config
+    docs_url: https://man.openbsd.org/sshd_config#ClientAliveInterval
+    post_install_message: |
+      SSH keepalive configured! Your connections will now survive VPN/NAT timeouts.
+      Settings: ClientAliveInterval 60, ClientAliveCountMax 3
+      Original config backed up to /etc/ssh/sshd_config.acfs.bak
+
+  # ============================================================
+  # PHASE 6: Language runtimes
+  # ============================================================
+  - id: lang.bun
+    description: Bun runtime for JS tooling and global CLIs
+    category: lang
+    phase: 6
+    run_as: target_user
+    optional: false
+    enabled_by_default: true
+    tags: [critical, runtime]
+    dependencies:
+      - base.system
+    installed_check:
+      run_as: target_user
+      command: "test -x ~/.bun/bin/bun"
+    verified_installer:
+      tool: bun
+      runner: bash
+    install: []
+    verify:
+      - ~/.bun/bin/bun --version
+
+  - id: lang.uv
+    description: uv Python tooling (fast venvs)
+    category: lang
+    phase: 6
+    run_as: target_user
+    optional: false
+    enabled_by_default: true
+    tags: [critical, runtime]
+    dependencies:
+      - base.system
+    installed_check:
+      run_as: target_user
+      command: 'test -x "${ACFS_BIN_DIR:-$HOME/.local/bin}/uv" || test -x "$HOME/.local/bin/uv"'
+    verified_installer:
+      tool: uv
+      runner: sh
+    install: []
+    verify:
+      - command -v uv >/dev/null 2>&1 && uv --version
+
+  - id: lang.rust
+    description: Rust nightly + cargo
+    category: lang
+    phase: 6
+    run_as: target_user
+    optional: false
+    enabled_by_default: true
+    tags: [critical, runtime]
+    dependencies:
+      - base.system
+    installed_check:
+      run_as: target_user
+      command: "test -x ~/.cargo/bin/cargo"
+    verified_installer:
+      tool: rust
+      runner: sh
+      args: ["-s", "--", "-y", "--default-toolchain", "nightly"]
+    install: []
+    verify:
+      - ~/.cargo/bin/cargo --version
+      - ~/.cargo/bin/rustup show | grep -q nightly
+
+  - id: lang.go
+    description: Go toolchain
+    category: lang
+    phase: 6
+    run_as: root
+    optional: false
+    enabled_by_default: true
+    tags: [critical, runtime]
+    dependencies:
+      - base.system
+    installed_check:
+      run_as: current
+      command: "command -v go"
+    install:
+      - apt-get install -y golang-go
+    verify:
+      - go version
+
+  - id: lang.nvm
+    description: nvm + latest Node.js
+    category: lang
+    phase: 6
+    run_as: target_user
+    optional: false
+    enabled_by_default: true
+    tags: [critical, runtime]
+    dependencies:
+      - base.system
+    installed_check:
+      run_as: target_user
+      # Check nvm exists AND at least one node version is installed
+      # Can't use 'command -v node' because nvm.sh isn't sourced in this context
+      command: "test -d ~/.nvm && ls ~/.nvm/versions/node/ 2>/dev/null | grep -q ."
+    verified_installer:
+      tool: nvm
+      runner: bash
+    install:
+      # After nvm is installed, source it and install latest Node.js
+      - |
+        export NVM_DIR="$HOME/.nvm"
+        [ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"
+        nvm install node
+        nvm alias default node
+    verify:
+      - |
+        export NVM_DIR="$HOME/.nvm"
+        [ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"
+        node --version
+
+  - id: tools.atuin
+    description: Atuin CLI with guarded agent-safe shim
+    category: tools
+    phase: 6
+    run_as: target_user
+    optional: false
+    enabled_by_default: true
+    tags: [recommended, shell-ux]
+    dependencies:
+      - base.system
+    installed_check:
+      run_as: target_user
+      command: "test -x ~/.atuin/bin/atuin && test -x \"${ACFS_BIN_DIR:-$HOME/.local/bin}/atuin\" && grep -Fq \"agent hook integration disabled by ACFS\" \"${ACFS_BIN_DIR:-$HOME/.local/bin}/atuin\""
+    verified_installer:
+      tool: atuin
+      runner: sh
+      args: ["--", "--non-interactive"]
+    install:
+      - |
+          # acfs-summary: install Atuin guard wrapper
+          real_bin="$HOME/.atuin/bin/atuin"
+          primary_dir="${ACFS_BIN_DIR:-$HOME/.local/bin}"
+          fallback_dir="$HOME/.local/bin"
+
+          write_atuin_guard_wrapper() {
+            local wrapper_path="${1:-}"
+            local real_bin_path="${2:-}"
+            local real_bin_q=""
+            local backup_path=""
+
+            [[ -n "$wrapper_path" && -n "$real_bin_path" && -x "$real_bin_path" ]] || return 1
+            printf -v real_bin_q "%q" "$real_bin_path"
+
+            if [[ -e "$wrapper_path" || -L "$wrapper_path" ]]; then
+              if [[ ! -L "$wrapper_path" ]] && grep -Fq "agent hook integration disabled by ACFS" "$wrapper_path" 2>/dev/null; then
+                :
+              else
+                backup_path="${wrapper_path}.acfs-backup.$(date +%s).$$"
+                mv "$wrapper_path" "$backup_path" 2>/dev/null || return 1
+              fi
+            fi
+
+            {
+              cat <<\ATUIN_ACFS_WRAPPER_HEAD
+          #!/usr/bin/env bash
+          set -euo pipefail
+
+          real_atuin_bin="${ATUIN_REAL_BIN:-}"
+          if [[ -z "$real_atuin_bin" ]]; then
+          ATUIN_ACFS_WRAPPER_HEAD
+              printf "    real_atuin_bin=%s\n" "$real_bin_q"
+              cat <<\ATUIN_ACFS_WRAPPER_TAIL
+          fi
+
+          if [[ ! -x "$real_atuin_bin" ]]; then
+              echo "atuin wrapper: real atuin binary not found at $real_atuin_bin" >&2
+              exit 127
+          fi
+
+          if [[ "${1:-}" == "hook" ]]; then
+              echo "atuin wrapper: agent hook integration disabled by ACFS" >&2
+              exit 0
+          fi
+
+          _acfs_atuin_agent_context() {
+              local parent_comm=""
+
+              if [[ -n "${CODEX_CI:-}" || -n "${CODEX_THREAD_ID:-}" || -n "${CLAUDE_PROJECT_DIR:-}" || -n "${AGENT_NAME:-}" ]]; then
+                  return 0
+              fi
+
+              parent_comm="$(ps -o comm= -p "${PPID:-0}" 2>/dev/null || true)"
+              case "$parent_comm" in
+                  claude|codex|cod|cc|agy|antigravity|agy-locked|gmi|gemini|bun|node) return 0 ;;
+                  *) return 1 ;;
+              esac
+          }
+
+          if [[ "${1:-}" == "history" && ( "${2:-}" == "start" || "${2:-}" == "end" ) ]] && _acfs_atuin_agent_context; then
+              if [[ "${2:-}" == "start" ]]; then
+                  printf "%s\n" "atuin-agent-history-disabled"
+              fi
+              exit 0
+          fi
+
+          exec "$real_atuin_bin" "$@"
+          ATUIN_ACFS_WRAPPER_TAIL
+            } > "$wrapper_path"
+            chmod 0755 "$wrapper_path"
+          }
+
+          for dir in "$primary_dir" "$fallback_dir"; do
+            [[ -n "$dir" ]] || continue
+            mkdir -p "$dir"
+            write_atuin_guard_wrapper "$dir/atuin" "$real_bin"
+            [[ "$fallback_dir" != "$primary_dir" ]] || break
+          done
+    verify:
+      - ~/.atuin/bin/atuin --version
+
+  - id: tools.zoxide
+    description: Zoxide (better cd)
+    category: tools
+    phase: 6
+    run_as: target_user
+    optional: false
+    enabled_by_default: true
+    tags: [recommended, shell-ux]
+    dependencies:
+      - base.system
+    installed_check:
+      run_as: target_user
+      command: "command -v zoxide"
+    verified_installer:
+      tool: zoxide
+      runner: sh
+    install: []
+    verify:
+      - command -v zoxide
+
+  - id: tools.ast_grep
+    description: ast-grep (used by UBS for syntax-aware scanning)
+    category: tools
+    phase: 6
+    run_as: target_user
+    optional: false
+    enabled_by_default: true
+    tags: [recommended]
+    dependencies:
+      - lang.rust
+    installed_check:
+      run_as: target_user
+      command: "command -v sg"
+    install:
+      - ~/.cargo/bin/cargo install ast-grep --locked
+    verify:
+      - sg --version
+
+  # ============================================================
+  # PHASE 7: Coding agents
+  # ============================================================
+  - id: agents.claude
+    description: Claude Code
+    category: agents
+    phase: 7
+    run_as: target_user
+    optional: false
+    enabled_by_default: true
+    tags: [recommended, agent]
+    dependencies:
+      - base.system
+    installed_check:
+      run_as: target_user
+      command: 'test -x "${ACFS_BIN_DIR:-$HOME/.local/bin}/claude" || test -x "$HOME/.local/bin/claude"'
+    verified_installer:
+      tool: claude
+      runner: bash
+      args: ["latest"]
+    install:
+      - |
+        claude_candidate=""
+        for candidate in "$HOME/.claude/bin/claude" "$HOME/.claude/local/bin/claude" "$HOME/.bun/bin/claude"; do
+          if [[ -x "$candidate" ]]; then
+            claude_candidate="$candidate"
+            break
+          fi
+        done
+        if [[ -z "$claude_candidate" ]] && [[ -d "$HOME/.claude" ]]; then
+          claude_candidate="$(find "$HOME/.claude" -maxdepth 4 -type f -name claude -perm -111 -print -quit 2>/dev/null || true)"
+        fi
+        if [[ -z "$claude_candidate" ]] || [[ ! -x "$claude_candidate" ]]; then
+          echo "Claude Code: installed but no runnable claude binary found" >&2
+          exit 1
+        fi
+        acfs_link_primary_bin_command "$claude_candidate" "claude"
+    verify:
+      - |
+        target_bin="${ACFS_BIN_DIR:-$HOME/.local/bin}"
+        "$target_bin/claude" --version || "$target_bin/claude" --help
+    notes:
+      - "Updated via verified installer (curl claude.ai/install.sh | bash -- latest); 'claude update --channel' flag does not exist"
+      - "Binary normalized into the configured ACFS bin dir"
+
+  - id: agents.codex
+    description: OpenAI Codex CLI
+    category: agents
+    phase: 7
+    run_as: target_user
+    optional: false
+    enabled_by_default: true
+    tags: [recommended, agent]
+    dependencies:
+      - lang.bun
+    installed_check:
+      run_as: target_user
+      command: 'test -x "${ACFS_BIN_DIR:-$HOME/.local/bin}/codex" || test -x "$HOME/.local/bin/codex"'
+    install:
+      # Install via bun, then create wrapper that uses bun as runtime (faster than node)
+      # Use --trust to allow postinstall scripts
+      - |
+        if ! ~/.bun/bin/bun install -g --trust @openai/codex@latest; then
+          echo "WARN: Codex CLI latest tag install failed; retrying @openai/codex" >&2
+          ~/.bun/bin/bun install -g --trust @openai/codex
+        fi
+      - |
+        wrapper_tmp="$(mktemp "${TMPDIR:-/tmp}/acfs-codex-wrapper.XXXXXX")"
+        trap 'rm -f "$wrapper_tmp"' EXIT
+        cat > "$wrapper_tmp" << 'WRAPPER'
+        #!/bin/bash
+        exec "$HOME/.bun/bin/bun" "$HOME/.bun/bin/codex" "$@"
+        WRAPPER
+        chmod 0755 "$wrapper_tmp"
+        acfs_install_executable_into_primary_bin "$wrapper_tmp" "codex"
+    verify:
+      - |
+        target_bin="${ACFS_BIN_DIR:-$HOME/.local/bin}"
+        "$target_bin/codex" --version || "$target_bin/codex" --help
+
+  - id: agents.gemini
+    description: Legacy Google Gemini CLI (retired; not installed by default)
+    category: agents
+    phase: 7
+    run_as: target_user
+    optional: true
+    enabled_by_default: false
+    tags: [legacy, agent]
+    dependencies:
+      - lang.bun
+      - lang.nvm
+    installed_check:
+      run_as: target_user
+      command: 'test -x "${ACFS_BIN_DIR:-$HOME/.local/bin}/gemini" || test -x "$HOME/.local/bin/gemini"'
+    install:
+      # Install via bun, then create wrapper that uses bun as runtime (faster than node)
+      # Use --trust to allow postinstall scripts
+      - ~/.bun/bin/bun install -g --trust @google/gemini-cli@latest
+      - |
+        wrapper_tmp="$(mktemp "${TMPDIR:-/tmp}/acfs-gemini-wrapper.XXXXXX")"
+        trap 'rm -f "$wrapper_tmp"' EXIT
+        cat > "$wrapper_tmp" << 'WRAPPER'
+        #!/bin/bash
+        exec "$HOME/.bun/bin/bun" "$HOME/.bun/bin/gemini" "$@"
+        WRAPPER
+        chmod 0755 "$wrapper_tmp"
+        acfs_install_executable_into_primary_bin "$wrapper_tmp" "gemini"
+      # Apply patches (EBADF crash fix, rate-limit retry 3→1000, quota retry)
+      - |
+        security_lib="${ACFS_LIB_DIR:-$HOME/.acfs/scripts/lib}/security.sh"
+        if [[ ! -f "$security_lib" ]]; then
+          echo "agents.gemini: security library not found at $security_lib; skipping Gemini patch" >&2
+          exit 0
+        fi
+        if [[ -n "${ACFS_CHECKSUMS_YAML:-}" ]]; then
+          export CHECKSUMS_FILE="$ACFS_CHECKSUMS_YAML"
+        fi
+        # shellcheck disable=SC1090,SC1091
+        source "$security_lib"
+        if ! load_checksums; then
+          echo "agents.gemini: checksum metadata unavailable; skipping Gemini patch" >&2
+          exit 0
+        fi
+        find_nvm_node() {
+          local node_path=""
+          while IFS= read -r node_path; do
+            if [[ -x "$node_path" ]]; then
+              printf '%s\n' "$node_path"
+              return 0
+            fi
+          done < <(compgen -G "$HOME/.nvm/versions/node/*/bin/node" | sort -Vr)
+          return 1
+        }
+        if ! nvm_node="$(find_nvm_node)"; then
+          nvm_url="${KNOWN_INSTALLERS[nvm]:-}"
+          nvm_sha256="$(get_checksum nvm)"
+          if [[ -z "$nvm_url" || -z "$nvm_sha256" ]]; then
+            echo "agents.gemini: missing verified installer metadata for nvm; skipping Gemini patch" >&2
+            exit 0
+          fi
+          if ! verify_checksum "$nvm_url" "$nvm_sha256" "nvm" | bash; then
+            echo "agents.gemini: nvm installer verification failed; skipping Gemini patch" >&2
+            exit 0
+          fi
+          export NVM_DIR="$HOME/.nvm"
+          if [[ ! -s "$NVM_DIR/nvm.sh" ]]; then
+            echo "agents.gemini: nvm.sh not found at $NVM_DIR/nvm.sh; skipping Gemini patch" >&2
+            exit 0
+          fi
+          . "$NVM_DIR/nvm.sh"
+          if ! nvm install node || ! nvm alias default node; then
+            echo "agents.gemini: failed to install Node.js via nvm; skipping Gemini patch" >&2
+            exit 0
+          fi
+        fi
+        if ! nvm_node="$(find_nvm_node)"; then
+          echo "agents.gemini: nvm Node.js binary not found after install; skipping Gemini patch" >&2
+          exit 0
+        fi
+        nvm_node_bin="${nvm_node%/node}"
+        if [[ -z "$nvm_node_bin" ]]; then
+          echo "agents.gemini: nvm Node.js bin not found after install; skipping Gemini patch" >&2
+          exit 0
+        fi
+        export PATH="$nvm_node_bin:$PATH"
+        patch_url="${KNOWN_INSTALLERS[gemini_patch]:-}"
+        patch_sha256="$(get_checksum gemini_patch)"
+        if [[ -z "$patch_url" || -z "$patch_sha256" ]]; then
+          echo "agents.gemini: missing verified installer metadata for gemini_patch; skipping Gemini patch" >&2
+          exit 0
+        fi
+        if ! verify_checksum "$patch_url" "$patch_sha256" "gemini_patch" | bash; then
+          echo "agents.gemini: Gemini patch verification failed; skipping patch" >&2
+          exit 0
+        fi
+    verify:
+      - |
+        target_bin="${ACFS_BIN_DIR:-$HOME/.local/bin}"
+        "$target_bin/gemini" --version || "$target_bin/gemini" --help
+
+  - id: agents.antigravity
+    description: Antigravity CLI (agy) — Google, successor to the retired Gemini CLI
+    category: agents
+    phase: 7
+    run_as: target_user
+    optional: false
+    enabled_by_default: true
+    tags: [recommended, agent]
+    dependencies:
+      - base.system
+    installed_check:
+      run_as: target_user
+      command: 'target_bin="${ACFS_BIN_DIR:-$HOME/.local/bin}"; test -x "$target_bin/agy" && test -x "$target_bin/agy-locked" && test -x "$target_bin/gmi"'
+    # agy is a standalone self-updating native binary (no bun/node runtime needed).
+    # The installer is supply-chain-verified via the external-installer checksum store
+    # (checksums.yaml -> antigravity); it SHA512-verifies the downloaded binary itself,
+    # drops agy into ~/.local/bin, and is idempotent (no-op if already present).
+    verified_installer:
+      tool: antigravity
+      runner: bash
+    install:
+      - |
+        # acfs-summary: install agy-locked launchers and prime settings
+        target_bin="${ACFS_BIN_DIR:-$HOME/.local/bin}"
+        source_file=""
+        for candidate in \
+          "${ACFS_LIB_DIR:-$HOME/.acfs/scripts/lib}/agy_locked.py" \
+          "$HOME/.acfs/scripts/lib/agy_locked.py"; do
+          if [[ -f "$candidate" ]]; then
+            source_file="$candidate"
+            break
+          fi
+        done
+
+        if [[ -z "$source_file" ]]; then
+          echo "agents.antigravity: agy locked launcher asset not found" >&2
+          exit 1
+        fi
+
+        mkdir -p "$target_bin"
+        install -m 0755 "$source_file" "$target_bin/agy-locked"
+        install -m 0755 "$source_file" "$target_bin/gmi"
+
+        if "$target_bin/agy-locked" --acfs-prime-settings; then
+          echo "agents.antigravity: agy locked settings and dcg hook primed" >&2
+        else
+          echo "agents.antigravity: warning: settings will be primed on first agy launch" >&2
+        fi
+    verify:
+      - |
+        # acfs-summary: verify agy-locked launchers and pinned settings
+        target_bin="${ACFS_BIN_DIR:-$HOME/.local/bin}"
+        test -x "$target_bin/agy"
+        test -x "$target_bin/agy-locked"
+        test -x "$target_bin/gmi"
+        python3 - <<'PY'
+        import json
+        import pathlib
+        import sys
+
+        settings_path = pathlib.Path.home() / ".gemini" / "antigravity-cli" / "settings.json"
+        hook_path = pathlib.Path.home() / ".gemini" / "config" / "hooks" / "dcg-antigravity-hook.py"
+        try:
+            settings = json.loads(settings_path.read_text(encoding="utf-8"))
+        except Exception as exc:
+            print(f"invalid or missing Antigravity settings: {settings_path}: {exc}", file=sys.stderr)
+            raise SystemExit(1)
+
+        expected = {
+            "model": "Gemini 3.1 Pro (High)",
+            "toolPermission": "always-proceed",
+            "artifactReviewPolicy": "always-proceed",
+            "enableTelemetry": False,
+            "enableTerminalSandbox": False,
+            "allowNonWorkspaceAccess": True,
+            "notifications": False,
+            "showTips": False,
+            "showFeedbackSurvey": False,
+            "useG1Credits": False,
+            "verbosity": "high",
+            "runningLightSpeed": "medium",
+            "colorScheme": "terminal",
+            "editor": "auto",
+            "altScreenMode": "never",
+        }
+        for key, value in expected.items():
+            if settings.get(key) != value:
+                print(f"Antigravity setting {key} is {settings.get(key)!r}, expected {value!r}", file=sys.stderr)
+                raise SystemExit(1)
+        if not hook_path.is_file():
+            print(f"Antigravity dcg hook is missing: {hook_path}", file=sys.stderr)
+            raise SystemExit(1)
+        PY
+    notes:
+      - "Pin the model to 'Gemini 3.1 Pro (High)' on every invocation (see scripts/lib/agy_model_guard.sh)"
+      - "Auth is Google OAuth (a human step); the agy shell alias in acfs.zshrc launches the locked policy wrapper"
+      - "ACFS installs agy-locked and maps both agy and gmi to it; the legacy Gemini CLI module is not installed by default"
+
+  - id: agents.opencode
+    description: OpenCode (multi-provider agent harness)
+    category: agents
+    phase: 7
+    run_as: target_user
+    optional: true
+    enabled_by_default: false
+    tags: [optional, agent]
+    dependencies:
+      - base.system
+    installed_check:
+      run_as: target_user
+      command: "command -v opencode"
+    verified_installer:
+      tool: opencode
+      runner: bash
+    install: []
+    verify:
+      - opencode --version || opencode --help
+    notes:
+      - "Supports GitHub Copilot and OpenAI Codex subscriptions"
+      - "Multi-provider agent supporting Claude, GPT, Gemini models"
+
+  # ============================================================
+  # PHASE 8: Cloud & database tools
+  # ============================================================
+  - id: tools.vault
+    description: HashiCorp Vault CLI
+    category: tools
+    phase: 8
+    run_as: root
+    optional: true
+    enabled_by_default: false
+    tags: [optional, cloud]
+    dependencies:
+      - base.system
+    installed_check:
+      run_as: current
+      command: "command -v vault"
+    install:
+      - |
+        # HashiCorp doesn't always publish packages for newest Ubuntu versions.
+        # Fall back to noble (24.04 LTS) if the current codename isn't supported.
+        CODENAME=$(lsb_release -cs 2>/dev/null || echo "noble")
+
+        CURL_ARGS=(-fsSL)
+        CURL_CHECK_ARGS=(-fsSI)
+        if curl --help all 2>/dev/null | grep -q -- '--proto'; then
+          CURL_ARGS=(--proto '=https' --proto-redir '=https' -fsSL)
+          CURL_CHECK_ARGS=(--proto '=https' --proto-redir '=https' -fsSI)
+        fi
+
+        if ! curl "${CURL_CHECK_ARGS[@]}" "https://apt.releases.hashicorp.com/dists/${CODENAME}/main/binary-amd64/Packages" >/dev/null 2>&1; then
+          CODENAME="noble"
+        fi
+
+        curl "${CURL_ARGS[@]}" https://apt.releases.hashicorp.com/gpg \
+          | gpg --batch --yes --dearmor -o /usr/share/keyrings/hashicorp-archive-keyring.gpg
+        echo "deb [signed-by=/usr/share/keyrings/hashicorp-archive-keyring.gpg] https://apt.releases.hashicorp.com ${CODENAME} main" \
+          > /etc/apt/sources.list.d/hashicorp.list
+        apt-get update && apt-get install -y vault
+    verify:
+      - vault --version
+    notes:
+      - "Uses official HashiCorp apt repository (GPG-signed)"
+
+  - id: db.postgres18
+    description: PostgreSQL 18
+    category: db
+    phase: 8
+    run_as: root
+    optional: true
+    enabled_by_default: false
+    tags: [optional, database]
+    dependencies:
+      - base.system
+    installed_check:
+      run_as: current
+      command: "command -v psql"
+    install:
+      - |
+        mkdir -p /etc/apt/keyrings
+        CURL_ARGS=(-fsSL)
+        if curl --help all 2>/dev/null | grep -q -- '--proto'; then
+          CURL_ARGS=(--proto '=https' --proto-redir '=https' -fsSL)
+        fi
+        curl "${CURL_ARGS[@]}" https://www.postgresql.org/media/keys/ACCC4CF8.asc \
+          | gpg --batch --yes --dearmor -o /etc/apt/keyrings/postgresql.gpg
+        CODENAME=$(lsb_release -cs 2>/dev/null || echo "noble")
+        case "$CODENAME" in
+          oracular|plucky|questing) CODENAME="noble" ;;
+        esac
+        echo "deb [signed-by=/etc/apt/keyrings/postgresql.gpg] https://apt.postgresql.org/pub/repos/apt ${CODENAME}-pgdg main" | tee /etc/apt/sources.list.d/pgdg.list
+      - apt-get update
+      - apt-get install -y postgresql-18
+    verify:
+      - psql --version
+      - systemctl status postgresql --no-pager || true
+    notes:
+      - "Uses official PGDG apt repository"
+
+  - id: cloud.wrangler
+    description: Cloudflare Wrangler CLI
+    category: cloud
+    phase: 8
+    run_as: target_user
+    optional: true
+    enabled_by_default: false
+    tags: [optional, cloud]
+    dependencies:
+      - lang.bun
+    installed_check:
+      run_as: target_user
+      command: "command -v wrangler"
+    install:
+      # Use --trust to allow postinstall scripts (downloads native binary)
+      - ~/.bun/bin/bun install -g --trust wrangler
+      - |
+        if [[ ! -x "$HOME/.bun/bin/wrangler" ]] || command -v node >/dev/null 2>&1; then
+          exit 0
+        fi
+        wrapper_tmp="$(mktemp "${TMPDIR:-/tmp}/acfs-wrangler-wrapper.XXXXXX")"
+        trap 'rm -f "$wrapper_tmp"' EXIT
+        cat > "$wrapper_tmp" << 'WRANGLER_SHIM'
+        #!/usr/bin/env bash
+        exec "$HOME/.bun/bin/bun" x wrangler@latest "$@"
+        WRANGLER_SHIM
+        chmod 0755 "$wrapper_tmp"
+        acfs_install_executable_into_primary_bin "$wrapper_tmp" "wrangler"
+    verify:
+      - wrangler --version
+
+  - id: cloud.supabase
+    description: Supabase CLI
+    category: cloud
+    phase: 8
+    run_as: target_user
+    optional: true
+    enabled_by_default: false
+    tags: [optional, cloud]
+    dependencies:
+      - base.system
+      - base.filesystem
+    installed_check:
+      run_as: target_user
+      command: "command -v supabase"
+    install:
+      # Verified GitHub release binary (checksum from official release checksums file).
+      - |
+        # Install Supabase CLI from GitHub release (verified via sha256 checksums)
+        arch=""
+        case "$(uname -m)" in
+          x86_64) arch="amd64" ;;
+          aarch64|arm64) arch="arm64" ;;
+          *)
+            echo "Supabase CLI: unsupported architecture ($(uname -m))" >&2
+            exit 1
+            ;;
+        esac
+
+        CURL_ARGS=(-fsSL)
+        if command -v curl >/dev/null 2>&1 && curl --help all 2>/dev/null | grep -q -- '--proto'; then
+          CURL_ARGS=(--proto '=https' --proto-redir '=https' -fsSL)
+        fi
+
+        release_url="$(curl "${CURL_ARGS[@]}" -o /dev/null -w '%{url_effective}\n' "https://github.com/supabase/cli/releases/latest" 2>/dev/null | tail -n1)" || true
+        tag="${release_url##*/}"
+        if [[ -z "$tag" ]] || [[ "$tag" != v* ]]; then
+          echo "Supabase CLI: failed to resolve latest release tag" >&2
+          exit 1
+        fi
+
+        version="${tag#v}"
+        base_url="https://github.com/supabase/cli/releases/download/${tag}"
+        tarball="supabase_linux_${arch}.tar.gz"
+        # Supabase CLI v2.99.0 (2026-05-18) renamed the per-version asset to plain
+        # `checksums.txt`. Older releases still ship `supabase_${version}_checksums.txt`.
+        # Try the new name first, then fall back to the legacy one so both work. (#282)
+        checksums_new="checksums.txt"
+        checksums_legacy="supabase_${version}_checksums.txt"
+
+        tmp_dir="$(mktemp -d "${TMPDIR:-/tmp}/acfs-supabase.XXXXXX")"
+        tmp_tgz="$(mktemp "${TMPDIR:-/tmp}/acfs-supabase.tgz.XXXXXX")"
+        tmp_checksums="$(mktemp "${TMPDIR:-/tmp}/acfs-supabase.sha.XXXXXX")"
+        
+        trap "rm -rf '$tmp_dir' '$tmp_tgz' '$tmp_checksums'" EXIT
+
+        if [[ -z "$tmp_dir" ]] || [[ -z "$tmp_tgz" ]] || [[ -z "$tmp_checksums" ]]; then
+          echo "Supabase CLI: failed to create temp files" >&2
+          exit 1
+        fi
+
+        curl "${CURL_ARGS[@]}" -o "$tmp_tgz" "${base_url}/${tarball}"
+        if ! curl "${CURL_ARGS[@]}" -o "$tmp_checksums" "${base_url}/${checksums_new}" 2>/dev/null \
+           && ! curl "${CURL_ARGS[@]}" -o "$tmp_checksums" "${base_url}/${checksums_legacy}" 2>/dev/null; then
+          echo "Supabase CLI: failed to download checksums (tried ${checksums_new} and ${checksums_legacy})" >&2
+          exit 1
+        fi
+
+        expected_sha="$(awk -v tb="$tarball" '$2 == tb {print $1; exit}' "$tmp_checksums" 2>/dev/null)"
+        if [[ -z "$expected_sha" ]]; then
+          echo "Supabase CLI: checksum entry not found for ${tarball}" >&2
+          exit 1
+        fi
+
+        actual_sha=""
+        if command -v sha256sum >/dev/null 2>&1; then
+          actual_sha="$(sha256sum "$tmp_tgz" | awk '{print $1}')"
+        elif command -v shasum >/dev/null 2>&1; then
+          actual_sha="$(shasum -a 256 "$tmp_tgz" | awk '{print $1}')"
+        else
+          echo "Supabase CLI: no SHA256 tool available (need sha256sum or shasum)" >&2
+          exit 1
+        fi
+
+        if [[ -z "$actual_sha" ]] || [[ "$actual_sha" != "$expected_sha" ]]; then
+          echo "Supabase CLI: checksum mismatch" >&2
+          echo "  Expected: $expected_sha" >&2
+          echo "  Actual:   ${actual_sha:-<missing>}" >&2
+          exit 1
+        fi
+
+        if ! tar -xzf "$tmp_tgz" -C "$tmp_dir" --no-same-owner --no-same-permissions supabase 2>/dev/null; then
+          tar -xzf "$tmp_tgz" -C "$tmp_dir" --no-same-owner --no-same-permissions 2>/dev/null || {
+            echo "Supabase CLI: failed to extract tarball" >&2
+            exit 1
+          }
+        fi
+
+        extracted_bin="$tmp_dir/supabase"
+        if [[ ! -f "$extracted_bin" ]]; then
+          extracted_bin="$(find "$tmp_dir" -maxdepth 2 -type f -name supabase -print -quit 2>/dev/null || true)"
+        fi
+        if [[ -z "$extracted_bin" ]] || [[ ! -f "$extracted_bin" ]]; then
+          echo "Supabase CLI: binary not found after extract" >&2
+          exit 1
+        fi
+
+        target_bin="${ACFS_BIN_DIR:-$HOME/.local/bin}"
+        acfs_install_executable_into_primary_bin "$extracted_bin" "supabase"
+
+        if command -v timeout >/dev/null 2>&1; then
+          timeout 5 "$target_bin/supabase" --version >/dev/null 2>&1 || {
+            echo "Supabase CLI: installed but failed to run" >&2
+            exit 1
+          }
+        else
+          "$target_bin/supabase" --version >/dev/null 2>&1 || {
+            echo "Supabase CLI: installed but failed to run" >&2
+            exit 1
+          }
+        fi
+
+        # Best-effort cleanup
+        rm -f "$tmp_tgz" "$tmp_checksums" "$extracted_bin" 2>/dev/null || true
+        rmdir "$tmp_dir" 2>/dev/null || true
+    verify:
+      - supabase --version
+
+  - id: cloud.vercel
+    description: Vercel CLI
+    category: cloud
+    phase: 8
+    run_as: target_user
+    optional: true
+    enabled_by_default: false
+    tags: [optional, cloud]
+    dependencies:
+      - lang.bun
+    installed_check:
+      run_as: target_user
+      command: "command -v vercel"
+    install:
+      # Use --trust to allow postinstall scripts (downloads native binary)
+      - ~/.bun/bin/bun install -g --trust vercel
+    verify:
+      - vercel --version
+
+  # ============================================================
+  # PHASE 9: Dicklesworthstone stack (all 8 tools)
+  # ============================================================
+  - id: stack.ntm
+    description: Named tmux manager (agent cockpit)
+    category: stack
+    phase: 9
+    run_as: target_user
+    optional: false
+    enabled_by_default: true
+    tags: [recommended]
+    web:
+      display_name: "Named Tmux Manager"
+      short_name: "NTM"
+      tagline: "Agent cockpit for multi-agent tmux sessions"
+      icon: "layout-grid"
+      color: "#0EA5E9"
+      href: "https://github.com/Dicklesworthstone/ntm"
+      features:
+        - "Named agent panes with type classification"
+        - "Broadcast prompts to agent types"
+        - "Session persistence across reboots"
+        - "Dashboard view of active agents"
+      tech_stack: ["Go", "Bubble Tea", "tmux"]
+      use_cases:
+        - "Running multiple Claude Code agents simultaneously"
+        - "Organizing dev environments by project"
+        - "Managing long-running agent sessions"
+      language: "Go"
+      stars: 69
+      cli_name: "ntm"
+    dependencies:
+      - cli.modern
+    installed_check:
+      run_as: target_user
+      command: "command -v ntm"
+    verified_installer:
+      tool: ntm
+      runner: bash
+      args: ["--no-shell"]
+    install: []
+    verify:
+      - ntm --help
+
+  - id: stack.mcp_agent_mail
+    description: Like gmail for coding agents; MCP HTTP server + token; installs beads tools
+    category: stack
+    phase: 9
+    run_as: target_user
+    optional: false
+    enabled_by_default: true
+    tags: [recommended]
+    web:
+      display_name: "MCP Agent Mail"
+      short_name: "Mail"
+      tagline: "Like Gmail for AI coding agents"
+      icon: "mail"
+      color: "#8B5CF6"
+      href: "https://github.com/Dicklesworthstone/mcp_agent_mail_rust"
+      features:
+        - "Threaded messaging between AI agents"
+        - "Advisory file reservations"
+        - "SQLite-backed persistent storage"
+        - "MCP integration for any compatible agent"
+      tech_stack: ["Rust", "SQLite"]
+      use_cases:
+        - "Coordinating file ownership across parallel agents"
+        - "Passing context between session restarts"
+        - "Building audit trails of agent decisions"
+      language: "Rust"
+      stars: 1400
+      cli_name: "am"
+    dependencies:
+      - lang.bun
+      - lang.uv
+    installed_check:
+      run_as: target_user
+      command: "command -v am"
+    verified_installer:
+      tool: mcp_agent_mail
+      runner: bash
+      env: ["AM_INSTALL_SKIP_MCP_SETUP=1"]
+      args: ["--dest", "$TARGET_HOME/mcp_agent_mail", "--yes"]
+    install:
+      - |
+          if ! command -v am >/dev/null 2>&1; then
+            echo "Agent Mail CLI missing after install" >&2
+            exit 1
+          fi
+          storage_root="$HOME/.mcp_agent_mail_git_mailbox_repo"
+          unit_dir="$HOME/.config/systemd/user"
+          unit_file="$unit_dir/agent-mail.service"
+          am_bin="$(command -v am)"
+          db_url="sqlite:///${storage_root}/storage.sqlite3"
+
+          # Detect MCP base path: Rust am uses /mcp/, Python mcp_agent_mail uses /api/
+          if "$am_bin" --version 2>/dev/null | grep -q '^am '; then
+              am_mcp_path="/mcp/"
+          else
+              am_mcp_path="/api/"
+          fi
+
+          systemd_unit_reject_line_breaks() {
+              local value="${1:-}"
+              [[ "$value" != *$'\n'* && "$value" != *$'\r'* ]]
+          }
+
+          systemd_unit_path_escape() {
+              local value="${1:-}"
+              local tab=$'\t'
+
+              systemd_unit_reject_line_breaks "$value" || return 1
+              value="${value//\\/\\\\}"
+              value="${value//%/%%}"
+              value="${value// /\\s}"
+              value="${value//$tab/\\t}"
+              printf '%s\n' "$value"
+          }
+
+          systemd_unit_quote() {
+              local value="${1:-}"
+              local escape_dollar="${2:-false}"
+
+              systemd_unit_reject_line_breaks "$value" || return 1
+              value="${value//\\/\\\\}"
+              value="${value//\"/\\\"}"
+              value="${value//%/%%}"
+              if [[ "$escape_dollar" == "true" ]]; then
+                  value="${value//\$/\$\$}"
+              fi
+              printf '"%s"\n' "$value"
+          }
+
+          systemd_unit_exec_arg() {
+              systemd_unit_quote "${1:-}" true
+          }
+
+          systemd_unit_exec_command() {
+              systemd_unit_quote "${1:-}" false
+          }
+
+          systemd_unit_env_assignment() {
+              local name="${1:-}"
+              local value="${2:-}"
+
+              [[ "$name" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] || return 1
+              systemd_unit_quote "${name}=${value}" false
+          }
+
+          mkdir -p "$storage_root" "$unit_dir"
+          storage_root_unit="$(systemd_unit_path_escape "$storage_root")" || exit 1
+          rust_log_env="$(systemd_unit_env_assignment RUST_LOG info)" || exit 1
+          storage_root_env="$(systemd_unit_env_assignment STORAGE_ROOT "$storage_root")" || exit 1
+          database_url_env="$(systemd_unit_env_assignment DATABASE_URL "$db_url")" || exit 1
+          http_allow_env="$(systemd_unit_env_assignment HTTP_ALLOW_LOCALHOST_UNAUTHENTICATED true)" || exit 1
+          am_bin_exec="$(systemd_unit_exec_command "$am_bin")" || exit 1
+          am_mcp_path_exec="$(systemd_unit_exec_arg "$am_mcp_path")" || exit 1
+          cat > "$unit_file" <<UNIT_EOF
+          [Unit]
+          Description=MCP Agent Mail Server
+          After=network.target
+
+          [Service]
+          Type=simple
+          WorkingDirectory=$storage_root_unit
+          Environment=$rust_log_env
+          Environment=$storage_root_env
+          Environment=$database_url_env
+          Environment=$http_allow_env
+          ExecStartPre=${am_bin_exec} migrate
+          ExecStart=${am_bin_exec} serve-http --no-tui --host 127.0.0.1 --port 8765 --path ${am_mcp_path_exec}
+          Restart=always
+          RestartSec=5
+          LimitNOFILE=65536
+
+          [Install]
+          WantedBy=default.target
+          UNIT_EOF
+
+          runtime_dir="/run/user/$(id -u)"
+          if [[ -d "$runtime_dir" ]]; then
+            export XDG_RUNTIME_DIR="$runtime_dir"
+            if [[ -S "$runtime_dir/bus" ]]; then
+              export DBUS_SESSION_BUS_ADDRESS="unix:path=$runtime_dir/bus"
+            fi
+          fi
+
+          # Pre-check: determine if systemctl --user is usable.  On fresh VPS
+          # installs run from root, /run/user/<uid> may exist (created by
+          # install.sh Phase 1) but the D-Bus session bus may not be up yet.
+          _systemctl_user_ok=false
+          if command -v systemctl >/dev/null 2>&1; then
+            if ! systemctl --user show-environment >/dev/null 2>&1; then
+              # Try setting DBUS_SESSION_BUS_ADDRESS to trigger socket activation
+              if [[ -n "${XDG_RUNTIME_DIR:-}" ]]; then
+                export DBUS_SESSION_BUS_ADDRESS="${DBUS_SESSION_BUS_ADDRESS:-unix:path=$XDG_RUNTIME_DIR/bus}"
+              fi
+              systemctl --user show-environment >/dev/null 2>&1 && _systemctl_user_ok=true
+            else
+              _systemctl_user_ok=true
+            fi
+          fi
+
+          fallback_pid_file="$storage_root/agent-mail.pid"
+          fallback_log_file="$storage_root/agent-mail.log"
+
+          agent_mail_service_curl() {
+            local curl_bin=""
+            local candidate=""
+
+            for candidate in /usr/bin/curl /bin/curl /usr/local/bin/curl /usr/local/sbin/curl /usr/sbin/curl /sbin/curl; do
+              [[ -x "$candidate" ]] || continue
+              curl_bin="$candidate"
+              break
+            done
+
+            [[ -n "$curl_bin" ]] || return 127
+            "$curl_bin" "$@"
+          }
+
+          stop_agent_mail_fallback() {
+            if [[ -f "$fallback_pid_file" ]]; then
+              existing_pid="$(cat "$fallback_pid_file" 2>/dev/null || true)"
+              if [[ -n "$existing_pid" ]] && kill -0 "$existing_pid" 2>/dev/null && \
+                 ps -p "$existing_pid" -o args= 2>/dev/null | grep -Fq "$am_bin serve-http"; then
+                kill "$existing_pid" >/dev/null 2>&1 || true
+                for _ in {1..10}; do
+                  if ! kill -0 "$existing_pid" 2>/dev/null; then
+                    break
+                  fi
+                  sleep 1
+                done
+                if kill -0 "$existing_pid" 2>/dev/null; then
+                  kill -9 "$existing_pid" >/dev/null 2>&1 || true
+                fi
+              fi
+              rm -f "$fallback_pid_file"
+            fi
+          }
+
+          launch_agent_mail_fallback() {
+            if agent_mail_service_curl -fsS --max-time 5 http://127.0.0.1:8765/health/liveness >/dev/null 2>&1; then
+              return 0
+            fi
+
+            if [[ -f "$fallback_pid_file" ]]; then
+              existing_pid="$(cat "$fallback_pid_file" 2>/dev/null || true)"
+              if [[ -n "$existing_pid" ]] && kill -0 "$existing_pid" 2>/dev/null && \
+                 ps -p "$existing_pid" -o args= 2>/dev/null | grep -Fq "$am_bin serve-http"; then
+                return 0
+              fi
+              rm -f "$fallback_pid_file"
+            fi
+
+            nohup env \
+              RUST_LOG=info \
+              STORAGE_ROOT="$storage_root" \
+              DATABASE_URL="$db_url" \
+              HTTP_PATH="$am_mcp_path" \
+              "$am_bin" serve-http --host 127.0.0.1 --port 8765 --path "$am_mcp_path" --no-auth --no-tui \
+              >>"$fallback_log_file" 2>&1 < /dev/null &
+            echo $! > "$fallback_pid_file"
+          }
+
+          if [[ "$_systemctl_user_ok" = "true" ]]; then
+            stop_agent_mail_fallback
+            systemctl --user daemon-reload >/dev/null 2>&1 || true
+            if ! systemctl --user enable --now agent-mail.service >/dev/null 2>&1; then
+              systemctl --user restart agent-mail.service >/dev/null 2>&1
+            fi
+            active_waited=0
+            active_max_wait=30
+            until systemctl --user is-active --quiet agent-mail.service >/dev/null 2>&1; do
+              if [[ "$active_waited" -ge "$active_max_wait" ]]; then
+                break
+              fi
+              sleep 1
+              active_waited=$((active_waited + 1))
+            done
+            systemctl --user is-active --quiet agent-mail.service >/dev/null 2>&1
+          else
+            echo "Agent Mail: systemctl --user unavailable, using background fallback" >&2
+            launch_agent_mail_fallback
+          fi
+      - |
+          # Wait for the managed Agent Mail service to become healthy.
+          agent_mail_service_curl() {
+            local curl_bin=""
+            local candidate=""
+
+            for candidate in /usr/bin/curl /bin/curl /usr/local/bin/curl /usr/local/sbin/curl /usr/sbin/curl /sbin/curl; do
+              [[ -x "$candidate" ]] || continue
+              curl_bin="$candidate"
+              break
+            done
+
+            [[ -n "$curl_bin" ]] || return 127
+            "$curl_bin" "$@"
+          }
+
+          waited=0
+          max_wait=90
+          until agent_mail_service_curl -fsS --max-time 10 http://127.0.0.1:8765/health/liveness >/dev/null 2>&1; do
+            if [[ "$waited" -ge "$max_wait" ]]; then
+              echo "Agent Mail service did not become healthy on 127.0.0.1:8765 after ${max_wait}s" >&2
+              exit 1
+            fi
+            sleep 2
+            waited=$((waited + 2))
+          done
+    verify:
+      - command -v am
+      - |
+          agent_mail_service_curl() {
+            local curl_bin=""
+            local candidate=""
+
+            for candidate in /usr/bin/curl /bin/curl /usr/local/bin/curl /usr/local/sbin/curl /usr/sbin/curl /sbin/curl; do
+              [[ -x "$candidate" ]] || continue
+              curl_bin="$candidate"
+              break
+            done
+
+            [[ -n "$curl_bin" ]] || return 127
+            "$curl_bin" "$@"
+          }
+
+          runtime_dir="/run/user/$(id -u)"
+          if [[ -d "$runtime_dir" ]]; then
+            export XDG_RUNTIME_DIR="$runtime_dir"
+            export DBUS_SESSION_BUS_ADDRESS="unix:path=$runtime_dir/bus"
+          fi
+          if command -v systemctl >/dev/null 2>&1 && systemctl --user show-environment >/dev/null 2>&1; then
+            systemctl --user is-active --quiet agent-mail.service >/dev/null 2>&1 || exit 1
+          fi
+          agent_mail_service_curl -fsS --max-time 10 http://127.0.0.1:8765/health/liveness >/dev/null
+    notes:
+      - "Installs with --no-start, then writes a managed no-auth user service on port 8765"
+      - "Managed service pins storage, database, and MCP path under ~/.mcp_agent_mail_git_mailbox_repo"
+      - "If a user systemd manager is available, verification requires agent-mail.service to be active"
+      - "Server health is verified at http://127.0.0.1:8765/health/liveness after install"
+
+  - id: stack.meta_skill
+    description: Local-first knowledge management with hybrid semantic search (ms)
+    category: stack
+    phase: 9
+    run_as: target_user
+    optional: false
+    enabled_by_default: true
+    tags: [recommended, agent-skills]
+    web:
+      display_name: "Meta Skill"
+      short_name: "MS"
+      tagline: "Skill management with MCP integration and adaptive suggestions"
+      icon: "sparkles"
+      color: "#14B8A6"
+      href: "https://github.com/Dicklesworthstone/meta_skill"
+      features:
+        - "MCP server for native AI agent integration"
+        - "Thompson sampling optimizes suggestions"
+        - "Multi-layer security"
+        - "Hybrid search with RRF"
+      tech_stack: ["Rust", "SQLite", "Tantivy", "MCP"]
+      use_cases:
+        - "AI agents querying skills via MCP"
+        - "Building team-wide skill libraries"
+        - "Packaging and sharing skills"
+      language: "Rust"
+      stars: 10
+      cli_name: "ms"
+    dependencies:
+      - lang.rust
+      - lang.uv
+    installed_check:
+      run_as: target_user
+      command: "command -v ms"
+    verified_installer:
+      tool: ms
+      runner: bash
+      args: ["--easy-mode"]
+    install: []
+    verify:
+      - ms --version
+      - ms doctor || true
+
+  - id: stack.automated_plan_reviser
+    description: Automated iterative spec refinement with extended AI reasoning (apr)
+    category: stack
+    phase: 9
+    run_as: target_user
+    optional: true
+    enabled_by_default: true
+    tags: [recommended, agent-tools]
+    web:
+      display_name: "Automated Plan Reviser Pro"
+      short_name: "APR"
+      tagline: "Automated iterative spec refinement with extended AI reasoning"
+      icon: "file-text"
+      color: "#F59E0B"
+      href: "https://github.com/Dicklesworthstone/automated_plan_reviser_pro"
+      features:
+        - "Automated multi-pass refinement"
+        - "Extended AI reasoning integration"
+        - "Markdown-based plan processing"
+        - "Progressive structure improvement"
+      tech_stack: ["Bash", "Oracle CLI", "GPT Pro", "Markdown"]
+      use_cases:
+        - "Turning rough ideas into detailed specifications"
+        - "Catching architectural flaws early"
+        - "Creating implementation-ready plans for agents"
+      language: "Bash"
+      stars: 85
+      cli_name: "apr"
+    dependencies:
+      - lang.rust
+    installed_check:
+      run_as: target_user
+      command: "command -v apr"
+    verified_installer:
+      tool: apr
+      runner: bash
+      args: ["--easy-mode"]
+    install: []
+    verify:
+      - apr --help
+      - apr --version || true
+
+  - id: stack.jeffreysprompts
+    description: Curated battle-tested prompts for AI agents - browse and install as skills (jfp)
+    category: stack
+    phase: 9
+    run_as: target_user
+    optional: true
+    enabled_by_default: true
+    tags: [recommended, agent-skills, prompts]
+    web:
+      display_name: "JeffreysPrompts CLI"
+      short_name: "JFP"
+      tagline: "Browse and install battle-tested prompts as Claude Code skills"
+      icon: "sparkles"
+      color: "#EC4899"
+      href: "https://jeffreysprompts.com"
+      features:
+        - "One-command skill installation"
+        - "Browsable prompt categories"
+        - "Claude Code skills integration"
+        - "MCP server for agent access"
+      tech_stack: ["TypeScript", "Bun", "Claude Code Skills API"]
+      use_cases:
+        - "Bootstrapping a new project with proven prompts"
+        - "Discovering prompts for specific domains"
+        - "Sharing effective prompts across teams"
+      language: "TypeScript"
+      stars: 120
+      cli_name: "jfp"
+    installed_check:
+      run_as: target_user
+      command: "command -v jfp"
+    verified_installer:
+      tool: jfp
+      runner: bash
+    install: []
+    verify:
+      - jfp --version
+      - jfp doctor || true
+
+  - id: stack.process_triage
+    description: Find and terminate stuck/zombie processes with intelligent scoring (pt)
+    category: stack
+    phase: 9
+    run_as: target_user
+    optional: true
+    enabled_by_default: true
+    tags: [recommended, system-tools]
+    web:
+      display_name: "Process Triage"
+      short_name: "PT"
+      tagline: "Intelligent process termination with Bayesian scoring"
+      icon: "activity"
+      color: "#EF4444"
+      href: "https://github.com/Dicklesworthstone/process_triage"
+      features:
+        - "Intelligent process scoring"
+        - "Interactive TUI selection"
+        - "Robot mode for automation"
+        - "Resource usage analysis"
+      tech_stack: ["Rust", "Bayesian inference", "procfs"]
+      use_cases:
+        - "Killing stuck build processes"
+        - "Cleaning up zombie processes"
+        - "Identifying memory hogs"
+      language: "Rust"
+      stars: 45
+      cli_name: "pt"
+      command_example: "pt --robot --top 10"
+      lesson_slug: "pt"
+    dependencies:
+      - lang.rust
+    installed_check:
+      run_as: target_user
+      command: "command -v pt"
+    verified_installer:
+      tool: pt
+      runner: bash
+      url: "https://raw.githubusercontent.com/Dicklesworthstone/process_triage/main/install.sh"
+    install: []
+    verify:
+      - pt --help
+      - pt --version || true
+
+  - id: stack.ultimate_bug_scanner
+    description: UBS bug scanning (easy-mode)
+    category: stack
+    phase: 9
+    run_as: target_user
+    optional: false
+    enabled_by_default: true
+    tags: [recommended]
+    web:
+      display_name: "Ultimate Bug Scanner"
+      short_name: "UBS"
+      tagline: "Pattern-based bug scanner with 1000+ detection rules"
+      icon: "bug"
+      color: "#F43F5E"
+      href: "https://github.com/Dicklesworthstone/ultimate_bug_scanner"
+      features:
+        - "1000+ built-in detection patterns"
+        - "Consistent JSON output format"
+        - "Multi-language support"
+        - "Perfect for pre-commit hooks"
+      tech_stack: ["Bash", "Pattern matching", "JSON output"]
+      use_cases:
+        - "Pre-commit validation across polyglot repos"
+        - "CI/CD pipeline integration"
+        - "Catching AI-generated code errors"
+      language: "Bash"
+      stars: 132
+      cli_name: "ubs"
+      command_example: "ubs file.ts"
+    dependencies:
+      - lang.bun
+      - lang.uv
+      - tools.ast_grep
+    installed_check:
+      run_as: target_user
+      command: "command -v ubs"
+    verified_installer:
+      tool: ubs
+      runner: bash
+      args: ["--easy-mode"]
+    install: []
+    verify:
+      - ubs --help
+      - cd /tmp && ubs doctor || true
+
+  - id: stack.beads_rust
+    description: beads_rust (br) - Rust issue tracker with graph-aware dependencies
+    category: stack
+    phase: 9
+    run_as: target_user
+    optional: false
+    enabled_by_default: true
+    tags: [recommended]
+    web:
+      display_name: "beads_rust"
+      short_name: "BR"
+      tagline: "Local-first issue tracking for AI agents"
+      icon: "list-todo"
+      color: "#F59E0B"
+      href: "https://github.com/Dicklesworthstone/beads_rust"
+      features:
+        - "Local-first issue storage"
+        - "Dependency graph tracking"
+        - "Labels, priorities, comments"
+        - "JSON output for agents"
+      tech_stack: ["Rust", "Serde", "JSONL"]
+      use_cases:
+        - "Tracking tasks that travel with the code"
+        - "Building dependency graphs"
+        - "Enabling agents to manage work queues"
+      language: "Rust"
+      stars: 128
+      cli_name: "br"
+      cli_aliases: []
+      command_example: "br ready --json"
+    dependencies:
+      - lang.rust
+    installed_check:
+      run_as: target_user
+      command: "command -v br"
+    verified_installer:
+      tool: br
+      runner: bash
+      url: "https://raw.githubusercontent.com/Dicklesworthstone/beads_rust/main/install.sh"
+    install: []
+    verify:
+      - br --version
+      - br list --json 2>/dev/null || true
+
+  - id: stack.beads_viewer
+    description: bv TUI for Beads tasks
+    category: stack
+    phase: 9
+    run_as: target_user
+    optional: false
+    enabled_by_default: true
+    tags: [recommended]
+    web:
+      display_name: "Beads Viewer"
+      short_name: "BV"
+      tagline: "Graph-theory triage engine for task prioritization"
+      icon: "git-branch"
+      color: "#10B981"
+      href: "https://github.com/Dicklesworthstone/beads_viewer"
+      features:
+        - "PageRank-based issue prioritization"
+        - "Critical path analysis"
+        - "Robot mode for AI agent integration"
+        - "Interactive TUI with vim keybindings"
+      tech_stack: ["Go", "Bubble Tea", "Lip Gloss", "Graph algorithms"]
+      use_cases:
+        - "Identifying which task unblocks the most other work"
+        - "Visualizing complex dependency graphs"
+        - "Generating execution plans for AI agents"
+      language: "Go"
+      stars: 891
+      cli_name: "bv"
+      command_example: "bv --robot-triage"
+    dependencies:
+      - lang.go
+      - stack.beads_rust
+    installed_check:
+      run_as: target_user
+      command: "command -v bv"
+    verified_installer:
+      tool: bv
+      runner: bash
+    install: []
+    verify:
+      - bv --help || bv --version
+
+  - id: stack.cass
+    description: Unified search across agent session history
+    category: stack
+    phase: 9
+    run_as: target_user
+    optional: false
+    enabled_by_default: true
+    tags: [recommended]
+    web:
+      display_name: "Coding Agent Session Search"
+      short_name: "CASS"
+      tagline: "Blazing-fast search across AI coding agent sessions"
+      icon: "search"
+      color: "#06B6D4"
+      href: "https://github.com/Dicklesworthstone/coding_agent_session_search"
+      features:
+        - "Unified search across all agent types"
+        - "Sub-second search over millions of messages"
+        - "Robot mode for AI agent integration"
+        - "TUI for interactive exploration"
+      tech_stack: ["Rust", "Tantivy", "Ratatui", "JSONL parsing"]
+      use_cases:
+        - "Finding how a similar bug was fixed before"
+        - "Retrieving context from past project work"
+        - "Building on previous agent conversations"
+      language: "Rust"
+      stars: 307
+      cli_name: "cass"
+      command_example: "cass search \"auth error\" --robot"
+    dependencies:
+      - lang.rust
+      - lang.uv
+    installed_check:
+      run_as: target_user
+      command: "command -v cass"
+    verified_installer:
+      tool: cass
+      runner: bash
+      env: ["TMPDIR=$TARGET_HOME/.cache/acfs/installer-tmp/cass.XXXXXX"]
+      args: ["--easy-mode", "--verify"]
+    install: []
+    verify:
+      - cass --help || cass --version
+
+  - id: stack.cm
+    description: Procedural memory for agents (cass-memory)
+    category: stack
+    phase: 9
+    run_as: target_user
+    optional: false
+    enabled_by_default: true
+    tags: [recommended]
+    web:
+      display_name: "CASS Memory System"
+      short_name: "CM"
+      tagline: "Procedural memory system for AI coding agents"
+      icon: "brain"
+      color: "#EC4899"
+      href: "https://github.com/Dicklesworthstone/cass_memory_system"
+      features:
+        - "Three memory layers: episodic, working, procedural"
+        - "MCP integration for any compatible agent"
+        - "Automatic memory consolidation"
+        - "Cross-session context persistence"
+      tech_stack: ["TypeScript", "Bun", "MCP Protocol", "SQLite"]
+      use_cases:
+        - "Remembering project conventions across sessions"
+        - "Learning from past debugging sessions"
+        - "Building institutional knowledge over time"
+      language: "TypeScript"
+      stars: 152
+      cli_name: "cm"
+      command_example: "cm context \"task\" --json"
+    dependencies:
+      - lang.rust
+      - lang.uv
+    installed_check:
+      run_as: target_user
+      command: "command -v cm"
+    verified_installer:
+      tool: cm
+      runner: bash
+      args: ["--easy-mode", "--verify"]
+    install: []
+    verify:
+      - cm --version
+      - cm doctor --json || true
+
+  - id: stack.caam
+    description: Instant auth switching for agent CLIs
+    category: stack
+    phase: 9
+    run_as: target_user
+    optional: false
+    enabled_by_default: true
+    tags: [recommended]
+    web:
+      display_name: "Coding Agent Account Manager"
+      short_name: "CAAM"
+      tagline: "Sub-100ms auth switching for AI coding agents"
+      icon: "key-round"
+      color: "#A855F7"
+      href: "https://github.com/Dicklesworthstone/coding_agent_account_manager"
+      features:
+        - "Sub-100ms account switching"
+        - "Multi-provider support"
+        - "Automatic key rotation"
+        - "Session state preservation"
+      tech_stack: ["TypeScript", "Bun", "Keychain"]
+      use_cases:
+        - "Switching between API keys when hitting rate limits"
+        - "Managing multiple agent accounts"
+        - "Automated credential rotation"
+      language: "TypeScript"
+      stars: 45
+      cli_name: "caam"
+      command_example: "caam status"
+    dependencies:
+      - lang.bun
+    installed_check:
+      run_as: target_user
+      command: "command -v caam"
+    verified_installer:
+      tool: caam
+      runner: bash
+    install: []
+    verify:
+      - caam status || caam --help
+
+  - id: stack.slb
+    description: Two-person rule for dangerous commands (optional guardrails)
+    category: stack
+    phase: 9
+    run_as: target_user
+    optional: true
+    enabled_by_default: true
+    tags: [optional]
+    web:
+      display_name: "Simultaneous Launch Button"
+      short_name: "SLB"
+      tagline: "Two-person rule for dangerous command approval"
+      icon: "shield-check"
+      color: "#F59E0B"
+      href: "https://github.com/Dicklesworthstone/simultaneous_launch_button"
+      features:
+        - "Two-person rule enforcement"
+        - "Command queue with approval workflow"
+        - "Pattern-based risk detection"
+        - "SQLite persistence"
+      tech_stack: ["Go", "Bubble Tea", "SQLite"]
+      use_cases:
+        - "Requiring approval for rm -rf and git reset"
+        - "Adding safety gates to autonomous agent workflows"
+        - "Audit trail of dangerous command approvals"
+      language: "Go"
+      stars: 49
+      cli_name: "slb"
+    dependencies:
+      - lang.go
+    installed_check:
+      run_as: target_user
+      command: "command -v slb"
+    install:
+      # go install fails due to module path mismatch (go.mod says github.com/Dicklesworthstone/slb
+      # but repo is at github.com/Dicklesworthstone/simultaneous_launch_button)
+      # Build from source instead:
+      - |
+        mkdir -p ~/go/bin
+        SLB_TMP="$(mktemp -d "${TMPDIR:-/tmp}/slb_build.XXXXXX")"
+        trap 'rm -rf "$SLB_TMP"' EXIT
+        cd "$SLB_TMP"
+        git clone --depth 1 https://github.com/Dicklesworthstone/simultaneous_launch_button.git .
+        go build -o ~/go/bin/slb ./cmd/slb
+        cd ..
+        rm -rf "$SLB_TMP"
+        # Add ~/go/bin to PATH if not already present
+        acfs_has_active_go_bin_path() {
+          local file="${1:-}"
+          [[ -f "$file" ]] || return 1
+
+          awk '
+              /^[[:space:]]*#/ { next }
+              /^[[:space:]]*(export[[:space:]]+)?PATH[[:space:]]*=/ && index($0, "$HOME/go/bin") { found=1; exit }
+              END { exit(found ? 0 : 1) }
+          ' "$file" 2>/dev/null
+        }
+
+        if ! acfs_has_active_go_bin_path ~/.zshrc; then
+          echo '' >> ~/.zshrc
+          echo '# Go binaries' >> ~/.zshrc
+          echo 'export PATH="$HOME/go/bin:$PATH"' >> ~/.zshrc
+        fi
+    verify:
+      # Use 'slb' alone (shows quick reference) since --help may have exit code issues
+      # Need to source updated PATH for verification
+      - export PATH="$HOME/go/bin:$PATH" && slb >/dev/null 2>&1 || slb --help >/dev/null 2>&1
+
+  - id: stack.dcg
+    description: Destructive Command Guard - Claude Code hook blocking dangerous git/fs commands
+    category: stack
+    phase: 9
+    run_as: target_user
+    optional: false
+    enabled_by_default: true
+    tags: [recommended, safety]
+    web:
+      display_name: "Destructive Command Guard"
+      short_name: "DCG"
+      tagline: "SIMD-accelerated safety net for dangerous commands"
+      icon: "shield-alert"
+      color: "#EF4444"
+      href: "https://github.com/Dicklesworthstone/destructive_command_guard"
+      features:
+        - "Intercepts rm -rf, git reset --hard, etc."
+        - "SIMD-accelerated pattern matching"
+        - "Configurable allowlists"
+        - "Command audit logging"
+      tech_stack: ["Rust", "SIMD", "Shell integration"]
+      use_cases:
+        - "Protecting against accidental data loss"
+        - "Auditing dangerous commands from agents"
+        - "Training wheels for new AI agent setups"
+      language: "Rust"
+      stars: 89
+      cli_name: "dcg"
+      command_example: "dcg doctor"
+    dependencies:
+      - agents.claude   # dcg is a Claude Code hook, only useful if Claude is installed
+    installed_check:
+      run_as: target_user
+      command: "command -v dcg"
+    verified_installer:
+      tool: dcg
+      runner: bash
+      args: ["--easy-mode"]
+    install: []
+    verify:
+      - dcg --version
+      - |
+          claude_settings_has_command_hook() {
+            local settings_file="${1:-}"
+            local command_pattern="${2:-}"
+            local jq_bin=""
+
+            [[ -n "$settings_file" && -n "$command_pattern" ]] || return 1
+            [[ -f "$settings_file" ]] || return 1
+            for jq_bin in /usr/bin/jq /bin/jq /usr/local/bin/jq /usr/local/sbin/jq /usr/sbin/jq /sbin/jq; do
+              [[ -x "$jq_bin" ]] && break
+            done
+            [[ -x "$jq_bin" ]] || return 1
+
+            "$jq_bin" -e --arg pattern "$command_pattern" '
+              def command_hook_matches:
+                type == "object"
+                and ((.type? // "command") == "command")
+                and ((.command? // "") | strings | test($pattern));
+              def event_entry_matches:
+                if type == "object" and (.hooks? | type) == "array" then
+                  any(.hooks[]?; command_hook_matches)
+                else
+                  command_hook_matches
+                end;
+              def hook_event_entries:
+                if (.hooks? | type) == "object" then
+                  .hooks | to_entries[]? | .value | arrays | .[]?
+                elif (.hooks? | type) == "array" then
+                  .hooks[]?
+                else
+                  empty
+                end;
+              any(hook_event_entries; event_entry_matches)
+            ' "$settings_file" >/dev/null 2>&1
+          }
+
+          settings="$HOME/.claude/settings.json"
+          alt_settings="$HOME/.config/claude/settings.json"
+          dcg_command_pattern='(^|[[:space:]/])dcg([[:space:]]|$)'
+
+          claude_settings_has_command_hook "$settings" "$dcg_command_pattern" ||
+            claude_settings_has_command_hook "$alt_settings" "$dcg_command_pattern"
+
+  - id: stack.ru
+    description: Repo Updater - multi-repo sync + AI-driven commit automation
+    category: stack
+    phase: 9
+    run_as: target_user
+    optional: false
+    enabled_by_default: true
+    tags: [recommended]
+    web:
+      display_name: "Repo Updater"
+      short_name: "RU"
+      tagline: "Multi-repo sync with AI-driven commit automation"
+      icon: "refresh-cw"
+      color: "#F97316"
+      href: "https://github.com/Dicklesworthstone/repo_updater"
+      features:
+        - "One-command multi-repo sync"
+        - "Parallel operations"
+        - "Conflict detection with resolution hints"
+        - "AI code review integration"
+      tech_stack: ["Bash", "Git plumbing", "GitHub CLI"]
+      use_cases:
+        - "Keeping development machines in sync"
+        - "CI/CD repo management"
+        - "Automated codebase maintenance"
+      language: "Bash"
+      stars: 67
+      cli_name: "ru"
+      command_example: "ru sync --parallel 4"
+    dependencies:
+      - cli.modern   # for gh, tmux
+      - stack.ntm    # for session management
+    installed_check:
+      run_as: target_user
+      command: "command -v ru"
+    verified_installer:
+      tool: ru
+      runner: bash
+      url: "https://raw.githubusercontent.com/Dicklesworthstone/repo_updater/main/install.sh"
+      env: ["RU_NON_INTERACTIVE=1"]
+    install: []
+    verify:
+      - ru --version
+
+  - id: stack.brenner_bot
+    description: Brenner Bot - research session manager with hypothesis tracking
+    category: stack
+    phase: 9
+    run_as: target_user
+    optional: true
+    enabled_by_default: true
+    tags: [recommended]
+    web:
+      display_name: "Brenner Bot"
+      short_name: "Brenner"
+      tagline: "Research orchestration inspired by Sydney Brenner"
+      icon: "flask-conical"
+      color: "#F43F5E"
+      href: "https://github.com/Dicklesworthstone/brenner_bot"
+      features:
+        - "Primary source corpus with citations"
+        - "Multi-agent research sessions"
+        - "Discriminative test ranking"
+        - "Adversarial critique generation"
+      tech_stack: ["TypeScript", "Bun", "Agent Mail", "Multi-model AI"]
+      use_cases:
+        - "Structured hypothesis generation"
+        - "Multi-model research synthesis"
+        - "Scientific methodology workflows"
+      language: "TypeScript"
+      stars: 28
+      cli_name: "brenner"
+    dependencies:
+      - lang.rust
+      - stack.cass  # for session search integration
+    installed_check:
+      run_as: target_user
+      command: "command -v brenner"
+    verified_installer:
+      tool: brenner_bot
+      runner: bash
+      url: "https://raw.githubusercontent.com/Dicklesworthstone/brenner_bot/main/install.sh"
+      args: ["--", "--skip-cass"]
+    install: []
+    verify:
+      - brenner --version || brenner --help
+
+  - id: stack.rch
+    description: Remote Compilation Helper - transparent build offloading for AI coding agents
+    category: stack
+    phase: 9
+    run_as: target_user
+    optional: true
+    enabled_by_default: true
+    tags: [recommended, performance]
+    web:
+      display_name: "Remote Compilation Helper"
+      short_name: "RCH"
+      tagline: "Transparent Rust build offloading to remote workers"
+      icon: "cpu"
+      color: "#6366F1"
+      href: "https://github.com/Dicklesworthstone/remote_compilation_helper"
+      features:
+        - "Transparent cargo interception"
+        - "Multi-worker pool with priority scheduling"
+        - "Incremental artifact sync"
+        - "Daemon mode with status monitoring"
+      tech_stack: ["Rust", "rsync", "zstd", "SSH"]
+      use_cases:
+        - "Offloading builds during multi-agent sessions"
+        - "Reducing local CPU usage during heavy compilation"
+        - "Distributing builds across remote servers"
+      language: "Rust"
+      stars: 35
+      cli_name: "rch"
+      command_example: "rch status"
+      lesson_slug: "rch"
+    dependencies:
+      - lang.rust
+    installed_check:
+      run_as: target_user
+      command: "command -v rch"
+    verified_installer:
+      tool: rch
+      runner: bash
+      url: "https://raw.githubusercontent.com/Dicklesworthstone/remote_compilation_helper/main/install.sh"
+      args: ["--easy-mode"]
+    install: []
+    verify:
+      - rch --version || rch --help
+
+  - id: stack.wezterm_automata
+    description: WezTerm Automata (wa) - terminal automation and orchestration for AI agents
+    category: stack
+    phase: 9
+    run_as: target_user
+    optional: true
+    enabled_by_default: true
+    tags: [recommended, automation]
+    web:
+      display_name: "WezTerm Automata"
+      short_name: "WA"
+      tagline: "Terminal hypervisor for multi-agent automation"
+      icon: "monitor"
+      color: "#06B6D4"
+      href: "https://github.com/Dicklesworthstone/wezterm_automata"
+      features:
+        - "Real-time terminal observation"
+        - "Intelligent pattern detection"
+        - "Robot Mode JSON API"
+        - "Event-driven automation"
+      tech_stack: ["Rust", "WezTerm API", "SQLite FTS5"]
+      use_cases:
+        - "Detecting agent rate limits and errors"
+        - "Coordinating multi-agent workflows"
+        - "Searching across captured terminal sessions"
+      language: "Rust"
+      stars: 42
+      cli_name: "wa"
+    dependencies:
+      - lang.rust
+    installed_check:
+      run_as: target_user
+      command: "command -v wa"
+    install:
+      # No install.sh yet - build from source via cargo
+      - |
+        WA_TMP="$(mktemp -d "${TMPDIR:-/tmp}/wa_build.XXXXXX")"
+        trap 'rm -rf "$WA_TMP"' EXIT
+        cd "$WA_TMP"
+        git clone --depth 1 https://github.com/Dicklesworthstone/wezterm_automata.git .
+        cargo build --release -p wa
+        cp target/release/wa ~/.cargo/bin/
+        rm -rf "$WA_TMP"
+    verify:
+      - wa --version || wa --help
+
+  - id: stack.srps
+    description: System Resource Protection Script - ananicy-cpp rules + TUI monitor for responsive dev workstations
+    category: stack
+    phase: 9
+    run_as: target_user
+    optional: true
+    enabled_by_default: true
+    tags: [recommended, system-health]
+    web:
+      display_name: "System Resource Protection Script"
+      short_name: "SRPS"
+      tagline: "Auto-deprioritize background processes for responsive dev workstations"
+      icon: "shield"
+      color: "#EAB308"
+      href: "https://github.com/Dicklesworthstone/system_resource_protection_script"
+      features:
+        - "Automatic process deprioritization"
+        - "Real-time TUI monitoring"
+        - "1700+ pre-configured rules"
+        - "Custom rule creation"
+      tech_stack: ["Go", "C++", "ananicy-cpp", "systemd"]
+      use_cases:
+        - "Multi-agent coding sessions"
+        - "Large compilation jobs"
+        - "Heavy test suite runs"
+      language: "Go"
+      stars: 50
+      cli_name: "sysmoni"
+    dependencies:
+      - base.system
+      - lang.go
+    installed_check:
+      run_as: target_user
+      command: "command -v sysmoni && systemctl is-active ananicy-cpp >/dev/null 2>&1"
+    verified_installer:
+      tool: srps
+      runner: bash
+      args: ["--install"]
+    install: []
+    verify:
+      - command -v sysmoni
+      - systemctl is-active ananicy-cpp
+    notes:
+      - "Installs ananicy-cpp with curated rules for compilers, browsers, IDEs"
+      - "Provides sysmoni TUI for live resource monitoring"
+      - "Auto-deprioritizes heavy workloads to keep system responsive"
+
+  - id: stack.frankensearch
+    description: Two-tier hybrid local search — lexical (BM25) + semantic retrieval with progressive delivery (fsfs)
+    category: stack
+    phase: 9
+    run_as: target_user
+    optional: true
+    enabled_by_default: true
+    tags: [recommended, search]
+    web:
+      display_name: "FrankenSearch"
+      short_name: "FSFS"
+      tagline: "Two-tier hybrid search with progressive delivery"
+      icon: "search"
+      color: "#7C3AED"
+      href: "https://github.com/Dicklesworthstone/frankensearch"
+      features:
+        - "BM25 lexical + semantic retrieval"
+        - "Progressive delivery (fast initial + quality refinement)"
+        - "Local ML model support"
+        - "JSON API for agent integration"
+      tech_stack: ["Rust", "Tantivy", "ONNX", "BM25"]
+      use_cases:
+        - "Local code and document search"
+        - "AI agent knowledge retrieval"
+        - "Hybrid search across project artifacts"
+      language: "Rust"
+      stars: 30
+      cli_name: "fsfs"
+      command_example: "fsfs search \"query\""
+      lesson_slug: "fsfs"
+    dependencies:
+      - lang.rust
+    installed_check:
+      run_as: target_user
+      command: "command -v fsfs"
+    verified_installer:
+      tool: fsfs
+      runner: bash
+      args: ["--easy-mode"]
+      url: "https://raw.githubusercontent.com/Dicklesworthstone/frankensearch/refs/heads/main/install.sh"
+    install: []
+    verify:
+      - fsfs version || fsfs --help
+
+  - id: stack.storage_ballast_helper
+    description: Cross-platform disk-pressure defense for AI coding workloads (sbh)
+    category: stack
+    phase: 9
+    run_as: target_user
+    optional: true
+    enabled_by_default: true
+    tags: [recommended, system-tools]
+    web:
+      display_name: "Storage Ballast Helper"
+      short_name: "SBH"
+      tagline: "Predictive disk-pressure defense for AI workloads"
+      icon: "hard-drive"
+      color: "#059669"
+      href: "https://github.com/Dicklesworthstone/storage_ballast_helper"
+      features:
+        - "Predictive disk space monitoring"
+        - "Safe cleanup policies"
+        - "Ballast file release"
+        - "Explainable policy decisions"
+      tech_stack: ["Rust", "SQLite", "procfs"]
+      use_cases:
+        - "Preventing disk-full failures during builds"
+        - "Automated cleanup of build artifacts"
+        - "Monitoring disk usage across projects"
+      language: "Rust"
+      stars: 20
+      cli_name: "sbh"
+      command_example: "sbh status"
+      lesson_slug: "sbh"
+    dependencies:
+      - lang.rust
+    installed_check:
+      run_as: target_user
+      command: "command -v sbh"
+    verified_installer:
+      tool: sbh
+      runner: bash
+      url: "https://raw.githubusercontent.com/Dicklesworthstone/storage_ballast_helper/main/scripts/install.sh"
+    install: []
+    verify:
+      - command -v sbh
+
+  - id: stack.cross_agent_session_resumer
+    description: Cross-provider AI coding session resumption — convert and resume sessions across providers (casr)
+    category: stack
+    phase: 9
+    run_as: target_user
+    optional: true
+    enabled_by_default: true
+    tags: [recommended, agent-tools]
+    web:
+      display_name: "Cross-Agent Session Resumer"
+      short_name: "CASR"
+      tagline: "Resume coding sessions across AI providers"
+      icon: "repeat"
+      color: "#D946EF"
+      href: "https://github.com/Dicklesworthstone/cross_agent_session_resumer"
+      features:
+        - "Cross-provider session conversion"
+        - "Canonical session model"
+        - "14+ provider support"
+        - "Session diff and merge"
+      tech_stack: ["Rust", "SQLite", "JSONL"]
+      use_cases:
+        - "Resuming a Claude session in Codex"
+        - "Migrating session history between providers"
+        - "Building unified session archives"
+      language: "Rust"
+      stars: 25
+      cli_name: "casr"
+      command_example: "casr export --from claude"
+      lesson_slug: "casr"
+    dependencies:
+      - lang.rust
+    installed_check:
+      run_as: target_user
+      command: "command -v casr"
+    verified_installer:
+      tool: casr
+      runner: bash
+      url: "https://raw.githubusercontent.com/Dicklesworthstone/cross_agent_session_resumer/main/install.sh"
+    install: []
+    verify:
+      - casr providers || casr --help
+
+  - id: stack.doodlestein_self_releaser
+    description: Fallback release infrastructure — local builds via act when GitHub Actions is throttled (dsr)
+    category: stack
+    phase: 9
+    run_as: target_user
+    optional: true
+    enabled_by_default: true
+    tags: [recommended, release]
+    web:
+      display_name: "Doodlestein Self-Releaser"
+      short_name: "DSR"
+      tagline: "Fallback release infra when CI is throttled"
+      icon: "package"
+      color: "#F97316"
+      href: "https://github.com/Dicklesworthstone/doodlestein_self_releaser"
+      features:
+        - "Reuses existing GitHub Actions YAML"
+        - "Local builds via nektos/act"
+        - "Multi-platform support"
+        - "Artifact signing with minisign"
+      tech_stack: ["Bash", "Docker", "act", "GitHub CLI"]
+      use_cases:
+        - "Releasing when GitHub Actions quota is exhausted"
+        - "Local release testing before push"
+        - "Cross-platform builds from single machine"
+      language: "Bash"
+      stars: 15
+      cli_name: "dsr"
+      command_example: "dsr release"
+      lesson_slug: "dsr"
+    dependencies:
+      - cli.modern   # for gh, docker
+    installed_check:
+      run_as: target_user
+      command: "command -v dsr"
+    verified_installer:
+      tool: dsr
+      runner: bash
+      args: ["--easy-mode"]
+      url: "https://raw.githubusercontent.com/Dicklesworthstone/doodlestein_self_releaser/main/install.sh"
+    install: []
+    verify:
+      - dsr --version || dsr --help
+
+  - id: stack.agent_settings_backup
+    description: Smart backup tool for AI coding agent configuration folders (asb)
+    category: stack
+    phase: 9
+    run_as: target_user
+    optional: true
+    enabled_by_default: true
+    tags: [recommended, backup]
+    web:
+      display_name: "Agent Settings Backup"
+      short_name: "ASB"
+      tagline: "Git-versioned backups for AI agent configs"
+      icon: "save"
+      color: "#0EA5E9"
+      href: "https://github.com/Dicklesworthstone/agent_settings_backup_script"
+      features:
+        - "Per-agent git repositories"
+        - "Full version history"
+        - "Easy restoration"
+        - "13+ agent type support"
+      tech_stack: ["Bash", "Git", "rsync"]
+      use_cases:
+        - "Backing up Claude Code settings before experiments"
+        - "Restoring agent configs after reinstall"
+        - "Tracking config changes over time"
+      language: "Bash"
+      stars: 10
+      cli_name: "asb"
+      command_example: "asb backup"
+      lesson_slug: "asb"
+    dependencies:
+      - base.system
+    installed_check:
+      run_as: target_user
+      command: "command -v asb"
+    verified_installer:
+      tool: asb
+      runner: bash
+      url: "https://raw.githubusercontent.com/Dicklesworthstone/agent_settings_backup_script/main/install.sh"
+    install:
+      - |
+        backup_root="${ASB_BACKUP_ROOT:-$HOME/.agent_settings_backups}"
+        existing_backup_repo=""
+
+        if [[ -d "$backup_root" ]]; then
+          existing_backup_repo="$(find "$backup_root" -mindepth 2 -maxdepth 2 -name .git -print -quit 2>/dev/null || true)"
+        fi
+
+        if [[ -n "$existing_backup_repo" ]]; then
+          echo "ASB backup history already exists at $backup_root" >&2
+        else
+          if asb backup; then
+            echo "ASB initial backup created at $backup_root" >&2
+          else
+            echo "WARN: ASB initial backup failed; continuing without a seeded backup repo" >&2
+          fi
+        fi
+
+        cron_status="$(asb schedule --status --cron 2>&1 || true)"
+        systemd_status="$(asb schedule --status --systemd 2>&1 || true)"
+        cron_missing=false
+        systemd_missing=false
+
+        if printf '%s' "$cron_status" | grep -q "No cron schedule found"; then
+          cron_missing=true
+        fi
+        if printf '%s' "$systemd_status" | grep -q "Systemd timer is not enabled"; then
+          systemd_missing=true
+        fi
+
+        if [[ "$cron_missing" == "true" && "$systemd_missing" == "true" ]]; then
+          if asb schedule --cron --interval daily >/dev/null 2>&1; then
+            echo "ASB scheduled backups enabled via cron (daily)." >&2
+          else
+            echo "WARN: ASB scheduled backup setup failed; continuing without automation" >&2
+          fi
+        fi
+
+        echo "ASB backup root: $backup_root" >&2
+    verify:
+      - asb version || asb help
+
+  - id: stack.pcr
+    description: Post-compaction reminder hook for Claude Code that forces an AGENTS.md re-read
+    category: stack
+    phase: 9
+    run_as: target_user
+    optional: true
+    enabled_by_default: true
+    tags: [recommended, safety, hooks]
+    web:
+      display_name: "Post-Compact Reminder"
+      short_name: "PCR"
+      tagline: "Stop Claude from forgetting project rules after compaction"
+      icon: "shield-alert"
+      color: "#DC2626"
+      href: "https://github.com/Dicklesworthstone/post_compact_reminder"
+      features:
+        - "Auto-detects compaction events"
+        - "Injects AGENTS.md re-read reminder"
+        - "Zero overhead when not compacting"
+        - "Configurable reminder text"
+      tech_stack: ["Bash", "jq", "Claude Code hooks"]
+      use_cases:
+        - "Preventing rule amnesia after compaction"
+        - "Ensuring agents follow project conventions"
+        - "Maintaining consistency across long sessions"
+      language: "Bash"
+      stars: 40
+      cli_name: "claude-post-compact-reminder"
+      cli_aliases: ["pcr"]
+      command_example: "printf '{\"session_id\":\"demo\",\"source\":\"compact\"}\\n' | claude-post-compact-reminder"
+      lesson_slug: "pcr"
+    dependencies:
+      - agents.claude
+    pre_install_check:
+      run_as: target_user
+      command: "command -v claude >/dev/null 2>&1"
+      skip_message: "Skipping PCR - Claude Code not found"
+    installed_check:
+      run_as: target_user
+      command: |
+        claude_settings_has_command_hook() {
+          local settings_file="${1:-}"
+          local command_pattern="${2:-}"
+          local jq_bin=""
+
+          [[ -n "$settings_file" && -n "$command_pattern" ]] || return 1
+          [[ -f "$settings_file" ]] || return 1
+          for jq_bin in /usr/bin/jq /bin/jq /usr/local/bin/jq /usr/local/sbin/jq /usr/sbin/jq /sbin/jq; do
+            [[ -x "$jq_bin" ]] && break
+          done
+          [[ -x "$jq_bin" ]] || return 1
+
+          "$jq_bin" -e --arg pattern "$command_pattern" '
+            def command_hook_matches:
+              type == "object"
+              and ((.type? // "command") == "command")
+              and ((.command? // "") | strings | test($pattern));
+            def event_entry_matches:
+              if type == "object" and (.hooks? | type) == "array" then
+                any(.hooks[]?; command_hook_matches)
+              else
+                command_hook_matches
+              end;
+            def hook_event_entries:
+              if (.hooks? | type) == "object" then
+                .hooks | to_entries[]? | .value | arrays | .[]?
+              elif (.hooks? | type) == "array" then
+                .hooks[]?
+              else
+                empty
+              end;
+            any(hook_event_entries; event_entry_matches)
+          ' "$settings_file" >/dev/null 2>&1
+        }
+
+        target_home="${TARGET_HOME:-$HOME}"
+        hook_script="$target_home/.local/bin/claude-post-compact-reminder"
+        settings="$target_home/.claude/settings.json"
+        alt_settings="$target_home/.config/claude/settings.json"
+        pcr_command_pattern='(^|[[:space:]/])claude-post-compact-reminder([[:space:]]|$)'
+
+        test -x "$hook_script" || exit 1
+
+        claude_settings_has_command_hook "$settings" "$pcr_command_pattern" ||
+          claude_settings_has_command_hook "$alt_settings" "$pcr_command_pattern"
+    verified_installer:
+      tool: pcr
+      runner: bash
+      args: ["--yes"]
+      url: "https://raw.githubusercontent.com/Dicklesworthstone/post_compact_reminder/main/install-post-compact-reminder.sh"
+    install: []
+    verify:
+      - |
+        claude_settings_has_command_hook() {
+          local settings_file="${1:-}"
+          local command_pattern="${2:-}"
+          local jq_bin=""
+
+          [[ -n "$settings_file" && -n "$command_pattern" ]] || return 1
+          [[ -f "$settings_file" ]] || return 1
+          for jq_bin in /usr/bin/jq /bin/jq /usr/local/bin/jq /usr/local/sbin/jq /usr/sbin/jq /sbin/jq; do
+            [[ -x "$jq_bin" ]] && break
+          done
+          [[ -x "$jq_bin" ]] || return 1
+
+          "$jq_bin" -e --arg pattern "$command_pattern" '
+            def command_hook_matches:
+              type == "object"
+              and ((.type? // "command") == "command")
+              and ((.command? // "") | strings | test($pattern));
+            def event_entry_matches:
+              if type == "object" and (.hooks? | type) == "array" then
+                any(.hooks[]?; command_hook_matches)
+              else
+                command_hook_matches
+              end;
+            def hook_event_entries:
+              if (.hooks? | type) == "object" then
+                .hooks | to_entries[]? | .value | arrays | .[]?
+              elif (.hooks? | type) == "array" then
+                .hooks[]?
+              else
+                empty
+              end;
+            any(hook_event_entries; event_entry_matches)
+          ' "$settings_file" >/dev/null 2>&1
+        }
+
+        target_home="${TARGET_HOME:-$HOME}"
+        hook_script="$target_home/.local/bin/claude-post-compact-reminder"
+        settings="$target_home/.claude/settings.json"
+        alt_settings="$target_home/.config/claude/settings.json"
+        pcr_command_pattern='(^|[[:space:]/])claude-post-compact-reminder([[:space:]]|$)'
+
+        test -x "$hook_script" || exit 1
+
+        claude_settings_has_command_hook "$settings" "$pcr_command_pattern" ||
+          claude_settings_has_command_hook "$alt_settings" "$pcr_command_pattern"
+
+  # ============================================================
+  # PHASE 9B: Utilities (giil, csctf)
+  # ============================================================
+  - id: utils.giil
+    description: Get Image from Internet Link - download cloud images for visual debugging
+    category: tools
+    phase: 9
+    run_as: target_user
+    optional: true
+    enabled_by_default: true
+    tags: [utility]
+    web:
+      display_name: "Get Image from Internet Link"
+      short_name: "GIIL"
+      tagline: "Download cloud images for visual debugging"
+      icon: "image"
+      color: "#64748B"
+      href: "https://github.com/Dicklesworthstone/giil"
+      features:
+        - "iCloud share link support"
+        - "CLI-based image download"
+        - "No browser required"
+        - "Works over SSH"
+      tech_stack: ["Bash", "curl", "iCloud API"]
+      use_cases:
+        - "Sharing screenshots for remote debugging"
+        - "Getting images to headless servers"
+        - "AI agent image analysis workflows"
+      language: "Bash"
+      stars: 24
+      cli_name: "giil"
+    dependencies:
+      - base.system   # giil installer auto-installs Node.js + Playwright if needed
+    installed_check:
+      run_as: target_user
+      command: "command -v giil"
+    verified_installer:
+      tool: giil
+      runner: bash
+    install: []
+    verify:
+      - giil --help || giil --version
+
+  - id: utils.csctf
+    description: Chat Shared Conversation to File - convert AI share links to Markdown/HTML
+    category: tools
+    phase: 9
+    run_as: target_user
+    optional: true
+    enabled_by_default: true
+    tags: [utility]
+    web:
+      display_name: "Chat Shared Conversation to File"
+      short_name: "CSCTF"
+      tagline: "Convert AI chat share links to Markdown and HTML"
+      icon: "file-text"
+      color: "#8B5CF6"
+      href: "https://github.com/Dicklesworthstone/chat_shared_conversation_to_file"
+      features:
+        - "Multi-provider support (ChatGPT, Claude, Gemini, Grok)"
+        - "Dual Markdown + HTML output"
+        - "Code block preservation"
+        - "Batch URL processing"
+      tech_stack: ["Rust"]
+      use_cases:
+        - "Archiving important AI conversations"
+        - "Preserving code solutions from chat"
+        - "Building a local knowledge base from AI interactions"
+      language: "Rust"
+      stars: 156
+      cli_name: "csctf"
+    dependencies:
+      - base.system   # csctf provides prebuilt binaries; installer handles deps
+    installed_check:
+      run_as: target_user
+      command: "command -v csctf"
+    verified_installer:
+      tool: csctf
+      runner: bash
+    install: []
+    verify:
+      - csctf --help || csctf --version
+
+  - id: utils.xf
+    description: xf - Ultra-fast X/Twitter archive search with Tantivy
+    category: tools
+    phase: 9
+    run_as: target_user
+    optional: true
+    enabled_by_default: false
+    tags: [utility, search]
+    web:
+      display_name: "X Archive Search"
+      short_name: "XF"
+      tagline: "Ultra-fast search over X/Twitter data archives"
+      icon: "archive"
+      color: "#3B82F6"
+      href: "https://github.com/Dicklesworthstone/xf"
+      features:
+        - "Sub-second search over large archives"
+        - "Semantic + keyword hybrid search"
+        - "No external API dependencies"
+        - "Privacy-preserving local processing"
+      tech_stack: ["Rust", "Tantivy", "Hash embeddings", "RRF"]
+      use_cases:
+        - "Finding bookmarked threads"
+        - "Researching past discussions"
+        - "Building on ideas from tweet history"
+      language: "Rust"
+      stars: 156
+      cli_name: "xf"
+    dependencies:
+      - lang.rust
+    installed_check:
+      run_as: target_user
+      command: "command -v xf"
+    verified_installer:
+      tool: xf
+      runner: bash
+      args: ["--easy-mode"]
+    install: []
+    verify:
+      - xf --help || xf --version
+
+  - id: utils.toon_rust
+    description: toon_rust (tru) - Token-optimized notation format for LLM context efficiency
+    category: tools
+    phase: 9
+    run_as: target_user
+    optional: true
+    enabled_by_default: true
+    tags: [utility, llm]
+    web:
+      display_name: "Token-Optimized Notation"
+      short_name: "TRU"
+      tagline: "Compress source code for maximum LLM context efficiency"
+      icon: "minimize-2"
+      color: "#06B6D4"
+      href: "https://github.com/Dicklesworthstone/toon_rust"
+      features:
+        - "40-70% token count reduction"
+        - "Multi-language support"
+        - "Token count statistics"
+        - "Reversible compression"
+      tech_stack: ["Rust"]
+      use_cases:
+        - "Fitting more code context into LLM requests"
+        - "Reducing API costs for large codebases"
+        - "Preparing code for context-limited models"
+      language: "Rust"
+      stars: 156
+      cli_name: "tru"
+    dependencies:
+      - lang.rust
+    installed_check:
+      run_as: target_user
+      command: "command -v tru"
+    verified_installer:
+      tool: tru
+      runner: bash
+      url: "https://raw.githubusercontent.com/Dicklesworthstone/toon_rust/main/install.sh"
+    install: []
+    verify:
+      - tru --help || tru --version
+
+  - id: utils.rano
+    description: rano - Network observer for AI CLIs with request/response logging
+    category: tools
+    phase: 9
+    run_as: target_user
+    optional: true
+    enabled_by_default: false
+    tags: [utility, network, debug]
+    web:
+      display_name: "Network Observer"
+      short_name: "RANO"
+      tagline: "Monitor AI CLI network traffic for debugging and analysis"
+      icon: "network"
+      color: "#F59E0B"
+      href: "https://github.com/Dicklesworthstone/rano"
+      features:
+        - "Transparent HTTP proxy interception"
+        - "Provider-aware log parsing"
+        - "Token and cost tracking"
+        - "Real-time traffic monitoring"
+      tech_stack: ["Rust"]
+      use_cases:
+        - "Debugging unexpected agent behavior"
+        - "Tracking API token consumption"
+        - "Analyzing prompt efficiency"
+      language: "Rust"
+      stars: 156
+      cli_name: "rano"
+    dependencies:
+      - lang.rust
+    installed_check:
+      run_as: target_user
+      command: "command -v rano"
+    verified_installer:
+      tool: rano
+      runner: bash
+      url: "https://raw.githubusercontent.com/Dicklesworthstone/rano/main/install.sh"
+    install: []
+    verify:
+      - rano --help || rano --version
+
+  - id: utils.mdwb
+    description: markdown_web_browser (mdwb) - Convert websites to Markdown for LLM consumption
+    category: tools
+    phase: 9
+    run_as: target_user
+    optional: true
+    enabled_by_default: true
+    tags: [utility, web, llm]
+    web:
+      display_name: "Markdown Web Browser"
+      short_name: "MDWB"
+      tagline: "Convert web pages to clean Markdown for AI consumption"
+      icon: "globe"
+      color: "#10B981"
+      href: "https://github.com/Dicklesworthstone/markdown_web_browser"
+      features:
+        - "Clean content extraction"
+        - "Code block preservation"
+        - "Link handling"
+        - "Pipe-friendly output"
+      tech_stack: ["Rust"]
+      use_cases:
+        - "Feeding documentation to AI agents"
+        - "Archiving web content locally"
+        - "Building LLM-ready research corpora"
+      language: "Rust"
+      stars: 156
+      cli_name: "mdwb"
+    dependencies:
+      - lang.rust
+    installed_check:
+      run_as: target_user
+      command: "command -v mdwb"
+    verified_installer:
+      tool: mdwb
+      runner: bash
+      url: "https://raw.githubusercontent.com/Dicklesworthstone/markdown_web_browser/main/install.sh"
+    install: []
+    verify:
+      - mdwb --help || mdwb --version
+
+  - id: utils.s2p
+    description: source_to_prompt_tui (s2p) - Code to LLM prompt generator with TUI
+    category: tools
+    phase: 9
+    run_as: target_user
+    optional: true
+    enabled_by_default: true
+    tags: [utility, llm, tui]
+    web:
+      display_name: "Source to Prompt TUI"
+      short_name: "S2P"
+      tagline: "Interactive code-to-prompt generator with token counting"
+      icon: "file-code"
+      color: "#22C55E"
+      href: "https://github.com/Dicklesworthstone/source_to_prompt_tui"
+      features:
+        - "Interactive file selection"
+        - "Real-time token counting"
+        - "Clipboard integration"
+        - "Gitignore-aware filtering"
+      tech_stack: ["TypeScript", "Bun", "React", "Ink", "tiktoken"]
+      use_cases:
+        - "Preparing code context for Claude/GPT"
+        - "Creating reproducible prompt templates"
+        - "Managing context window budget"
+      language: "TypeScript"
+      stars: 156
+      cli_name: "s2p"
+    dependencies:
+      - lang.bun
+    installed_check:
+      run_as: target_user
+      command: "command -v s2p"
+    verified_installer:
+      tool: s2p
+      runner: bash
+      url: "https://raw.githubusercontent.com/Dicklesworthstone/source_to_prompt_tui/main/install.sh"
+      args: ["--", "--skip-cass"]
+      env: ["RU_NON_INTERACTIVE=1"]
+    install: []
+    verify:
+      - s2p --help
+
+  - id: utils.rust_proxy
+    description: rust_proxy - Transparent proxy routing for debugging network traffic
+    category: tools
+    phase: 9
+    run_as: target_user
+    optional: true
+    enabled_by_default: false
+    tags: [utility, network, debug]
+    web:
+      display_name: "Rust Proxy"
+      short_name: "RP"
+      tagline: "Transparent proxy routing for network traffic debugging"
+      icon: "shield"
+      color: "#6366F1"
+      href: "https://github.com/Dicklesworthstone/rust_proxy"
+      features:
+        - "Transparent HTTP/HTTPS proxying"
+        - "Request/response logging"
+        - "Latency measurement"
+        - "Header inspection"
+      tech_stack: ["Rust"]
+      use_cases:
+        - "Debugging API communication issues"
+        - "Measuring request latency"
+        - "Inspecting headers and payloads"
+      language: "Rust"
+      stars: 156
+      cli_name: "rust_proxy"
+    dependencies:
+      - lang.rust
+    installed_check:
+      run_as: target_user
+      command: "command -v rust_proxy"
+    install:
+      - |
+        # Build rust_proxy from source (no install.sh available)
+        ACFS_TMP_DIR="$(mktemp -d "${TMPDIR:-/tmp}/acfs_proxy.XXXXXX")"
+        trap '[ -n "$ACFS_TMP_DIR" ] && rm -rf "$ACFS_TMP_DIR"' EXIT
+        git clone --depth 1 https://github.com/Dicklesworthstone/rust_proxy.git "$ACFS_TMP_DIR/rust_proxy"
+        cd "$ACFS_TMP_DIR/rust_proxy"
+        cargo build --release
+        cp target/release/rust_proxy ~/.cargo/bin/
+    verify:
+      - rust_proxy --help || rust_proxy --version
+
+  - id: utils.aadc
+    description: aadc - ASCII diagram corrector for fixing malformed ASCII art
+    category: tools
+    phase: 9
+    run_as: target_user
+    optional: true
+    enabled_by_default: false
+    tags: [utility, ascii]
+    web:
+      display_name: "ASCII Art Diagram Corrector"
+      short_name: "AADC"
+      tagline: "Fix malformed ASCII diagrams from AI output"
+      icon: "align-left"
+      color: "#EC4899"
+      href: "https://github.com/Dicklesworthstone/aadc"
+      features:
+        - "Auto-repair box alignment"
+        - "Connector line fixing"
+        - "Before/after diff preview"
+        - "Clipboard integration"
+      tech_stack: ["Rust"]
+      use_cases:
+        - "Fixing AI-generated architecture diagrams"
+        - "Cleaning up ASCII flowcharts"
+        - "Producing clean documentation"
+      language: "Rust"
+      stars: 156
+      cli_name: "aadc"
+    dependencies:
+      - lang.rust
+    installed_check:
+      run_as: target_user
+      command: "command -v aadc"
+    install:
+      - |
+        # Build aadc from source (no install.sh available)
+        ACFS_TMP_DIR="$(mktemp -d "${TMPDIR:-/tmp}/acfs_aadc.XXXXXX")"
+        trap '[ -n "$ACFS_TMP_DIR" ] && rm -rf "$ACFS_TMP_DIR"' EXIT
+        git clone --depth 1 https://github.com/Dicklesworthstone/aadc.git "$ACFS_TMP_DIR/aadc"
+        cd "$ACFS_TMP_DIR/aadc"
+        cargo build --release
+        cp target/release/aadc ~/.cargo/bin/
+    verify:
+      - aadc --help || aadc --version
+
+  - id: utils.caut
+    description: coding_agent_usage_tracker (caut) - LLM provider usage tracker
+    category: tools
+    phase: 9
+    run_as: target_user
+    optional: true
+    enabled_by_default: false
+    tags: [utility, tracking]
+    web:
+      display_name: "Coding Agent Usage Tracker"
+      short_name: "CAUT"
+      tagline: "Track LLM provider usage and costs across agents"
+      icon: "bar-chart-3"
+      color: "#14B8A6"
+      href: "https://github.com/Dicklesworthstone/coding_agent_usage_tracker"
+      features:
+        - "Multi-provider usage aggregation"
+        - "Per-session token breakdown"
+        - "Cost estimation and trends"
+        - "Export to CSV/JSON"
+      tech_stack: ["Rust"]
+      use_cases:
+        - "Monitoring daily API spend"
+        - "Comparing provider costs"
+        - "Optimizing agent token usage"
+      language: "Rust"
+      stars: 156
+      cli_name: "caut"
+    dependencies:
+      - lang.rust
+    installed_check:
+      run_as: target_user
+      command: "command -v caut"
+    install:
+      - |
+        # Build caut from source (no install.sh available)
+        ACFS_TMP_DIR="$(mktemp -d "${TMPDIR:-/tmp}/acfs_caut.XXXXXX")"
+        trap '[ -n "$ACFS_TMP_DIR" ] && rm -rf "$ACFS_TMP_DIR"' EXIT
+        git clone --depth 1 https://github.com/Dicklesworthstone/coding_agent_usage_tracker.git "$ACFS_TMP_DIR/caut"
+        cd "$ACFS_TMP_DIR/caut"
+        cargo build --release
+        cp target/release/caut ~/.cargo/bin/
+    verify:
+      - caut --help || caut --version
+
+  # ============================================================
+  # PHASE 10: Finalization (onboard, doctor, verification)
+  # ============================================================
+  - id: acfs.workspace
+    description: Agent workspace with tmux session and project folder
+    category: acfs
+    phase: 10
+    run_as: target_user
+    optional: true
+    enabled_by_default: true
+    tags: [workspace, agents]
+    dependencies:
+      - agents.claude
+      - agents.codex
+      - agents.antigravity
+      - cli.modern
+    installed_check:
+      run_as: target_user
+      command: "test -d /data/projects/my_first_project"
+    install:
+      - |
+        # Create project directory
+        mkdir -p /data/projects/my_first_project
+        cd /data/projects/my_first_project
+        git init 2>/dev/null || true
+      - |
+        # Create workspace instructions file
+        mkdir -p ~/.acfs
+        printf '%s\n' "" \
+          "  ACFS AGENT WORKSPACE - QUICK REFERENCE" \
+          "  --------------------------------------" \
+          "" \
+          "  RECONNECT AFTER SSH:" \
+          "    tmux attach -t agents    OR just type:  agents" \
+          "" \
+          "  WINDOWS (Ctrl-b + number):" \
+          "    0:welcome  - This instructions window" \
+          "    1:claude   - Claude Code (Anthropic)" \
+          "    2:codex    - Codex CLI (OpenAI)" \
+          "    3:agy      - Antigravity CLI (Google)" \
+          "" \
+          "  TMUX BASICS:" \
+          "    Ctrl-b d        - Detach (keep session running)" \
+          "    Ctrl-b c        - Create new window" \
+          "    Ctrl-b n/p      - Next/previous window" \
+          "    Ctrl-b [0-9]    - Switch to window number" \
+          "" \
+          "  START AN AGENT:" \
+          "    claude          - Start Claude Code" \
+          "    codex           - Start Codex CLI" \
+          "    agy             - Start Antigravity CLI" \
+          "" \
+          "  PROJECT: /data/projects/my_first_project" \
+          "  (Rename with: mv /data/projects/my_first_project /data/projects/NEW_NAME)" \
+          "" > ~/.acfs/workspace-instructions.txt
+      - |
+        # Create tmux session with agent panes (if not already running)
+        SESSION_NAME="agents"
+        if ! tmux has-session -t "$SESSION_NAME" 2>/dev/null; then
+          # Create session with first window for instructions
+          tmux new-session -d -s "$SESSION_NAME" -n "welcome" -c /data/projects/my_first_project
+
+          # Add agent windows
+          tmux new-window -t "$SESSION_NAME" -n "claude" -c /data/projects/my_first_project
+          tmux new-window -t "$SESSION_NAME" -n "codex" -c /data/projects/my_first_project
+          tmux new-window -t "$SESSION_NAME" -n "agy" -c /data/projects/my_first_project
+
+          # Send instructions to welcome window
+          tmux send-keys -t "$SESSION_NAME:welcome" "cat ~/.acfs/workspace-instructions.txt" Enter
+
+          # Select the welcome window
+          tmux select-window -t "$SESSION_NAME:welcome"
+        fi
+      - |
+        # Add agents alias to zshrc.local if not already present
+        acfs_has_active_agents_alias() {
+          local file="${1:-}"
+          [[ -f "$file" ]] || return 1
+
+          awk '
+              /^[[:space:]]*#/ { next }
+              /^[[:space:]]*alias[[:space:]]+agents=/ { found=1; exit }
+              END { exit(found ? 0 : 1) }
+          ' "$file" 2>/dev/null
+        }
+
+        if ! acfs_has_active_agents_alias ~/.zshrc.local; then
+          touch ~/.zshrc.local 2>/dev/null || true
+          echo '' >> ~/.zshrc.local
+          echo '# ACFS agents workspace alias' >> ~/.zshrc.local
+          echo 'alias agents="tmux attach -t agents 2>/dev/null || tmux new-session -s agents -c /data/projects"' >> ~/.zshrc.local
+        fi
+    verify:
+      - test -d /data/projects/my_first_project
+      - |
+        acfs_has_active_agents_alias() {
+          local file="${1:-}"
+          [[ -f "$file" ]] || return 1
+
+          awk '
+              /^[[:space:]]*#/ { next }
+              /^[[:space:]]*alias[[:space:]]+agents=/ { found=1; exit }
+              END { exit(found ? 0 : 1) }
+          ' "$file" 2>/dev/null
+        }
+
+        acfs_has_active_agents_alias ~/.zshrc.local || acfs_has_active_agents_alias ~/.zshrc
+    notes:
+      - "Creates /data/projects/my_first_project as starter project"
+      - "Sets up 'agents' tmux session with windows for each coding agent"
+      - "Adds 'agents' alias for quick reconnection"
+
+  - id: acfs.onboard
+    description: Onboarding TUI tutorial
+    category: acfs
+    phase: 10
+    run_as: target_user
+    optional: false
+    enabled_by_default: true
+    generated: false
+    tags: [orchestration]
+    notes:
+      - "Install onboard script to the configured ACFS bin dir"
+    install:
+      - |
+        onboard_tmp="$(mktemp "${TMPDIR:-/tmp}/acfs-onboard.XXXXXX")"
+        trap 'rm -f "$onboard_tmp"' EXIT
+        # Install onboard script
+        if [[ -n "${ACFS_BOOTSTRAP_DIR:-}" ]] && [[ -f "${ACFS_BOOTSTRAP_DIR}/packages/onboard/onboard.sh" ]]; then
+          cp "${ACFS_BOOTSTRAP_DIR}/packages/onboard/onboard.sh" "$onboard_tmp"
+        elif [[ -f "packages/onboard/onboard.sh" ]]; then
+          cp "packages/onboard/onboard.sh" "$onboard_tmp"
+        else
+          ACFS_RAW="${ACFS_RAW:-https://raw.githubusercontent.com/Dicklesworthstone/agentic_coding_flywheel_setup/${ACFS_REF:-main}}"
+          CURL_ARGS=(-fsSL)
+          if curl --help all 2>/dev/null | grep -q -- '--proto'; then
+            CURL_ARGS=(--proto '=https' --proto-redir '=https' -fsSL)
+          fi
+          curl "${CURL_ARGS[@]}" "${ACFS_RAW}/packages/onboard/onboard.sh" -o "$onboard_tmp"
+        fi
+        acfs_install_executable_into_primary_bin "$onboard_tmp" "onboard"
+        if command -v sudo >/dev/null 2>&1 && sudo -n true >/dev/null 2>&1 && { [[ ! -e /usr/local/bin/onboard ]] || [[ -L /usr/local/bin/onboard ]]; }; then
+          sudo -n ln -sf "$HOME/.acfs/onboard/onboard.sh" /usr/local/bin/onboard
+        fi
+    verify:
+      - onboard --help || command -v onboard
+
+  - id: acfs.update
+    description: ACFS update command wrapper
+    category: acfs
+    phase: 10
+    run_as: target_user
+    optional: false
+    enabled_by_default: true
+    generated: false
+    tags: [orchestration]
+    notes:
+      - "Install acfs-update script to the configured ACFS bin dir"
+    install:
+      - mkdir -p ~/.acfs/scripts
+      - |
+        # Install acfs-update wrapper
+        if [[ -n "${ACFS_BOOTSTRAP_DIR:-}" ]] && [[ -f "${ACFS_BOOTSTRAP_DIR}/scripts/lib/nightly_update.sh" ]]; then
+          cp "${ACFS_BOOTSTRAP_DIR}/scripts/lib/nightly_update.sh" ~/.acfs/scripts/nightly-update.sh
+        elif [[ -f "scripts/lib/nightly_update.sh" ]]; then
+          cp "scripts/lib/nightly_update.sh" ~/.acfs/scripts/nightly-update.sh
+        else
+          ACFS_RAW="${ACFS_RAW:-https://raw.githubusercontent.com/Dicklesworthstone/agentic_coding_flywheel_setup/${ACFS_REF:-main}}"
+          CURL_ARGS=(-fsSL)
+          if curl --help all 2>/dev/null | grep -q -- '--proto'; then
+            CURL_ARGS=(--proto '=https' --proto-redir '=https' -fsSL)
+          fi
+          curl "${CURL_ARGS[@]}" "${ACFS_RAW}/scripts/lib/nightly_update.sh" -o ~/.acfs/scripts/nightly-update.sh
+        fi
+        chmod +x ~/.acfs/scripts/nightly-update.sh
+      - |
+        update_tmp="$(mktemp "${TMPDIR:-/tmp}/acfs-update-wrapper.XXXXXX")"
+        trap 'rm -f "$update_tmp"' EXIT
+        if [[ -n "${ACFS_BOOTSTRAP_DIR:-}" ]] && [[ -f "${ACFS_BOOTSTRAP_DIR}/scripts/acfs-update" ]]; then
+          cp "${ACFS_BOOTSTRAP_DIR}/scripts/acfs-update" "$update_tmp"
+        elif [[ -f "scripts/acfs-update" ]]; then
+          cp "scripts/acfs-update" "$update_tmp"
+        else
+          ACFS_RAW="${ACFS_RAW:-https://raw.githubusercontent.com/Dicklesworthstone/agentic_coding_flywheel_setup/${ACFS_REF:-main}}"
+          CURL_ARGS=(-fsSL)
+          if curl --help all 2>/dev/null | grep -q -- '--proto'; then
+            CURL_ARGS=(--proto '=https' --proto-redir '=https' -fsSL)
+          fi
+          curl "${CURL_ARGS[@]}" "${ACFS_RAW}/scripts/acfs-update" -o "$update_tmp"
+        fi
+        acfs_install_executable_into_primary_bin "$update_tmp" "acfs-update"
+        if command -v sudo >/dev/null 2>&1 && sudo -n true >/dev/null 2>&1 && { [[ ! -e /usr/local/bin/acfs-update ]] || [[ -L /usr/local/bin/acfs-update ]]; }; then
+          sudo -n ln -sf "$HOME/.acfs/bin/acfs-update" /usr/local/bin/acfs-update
+        fi
+    verify:
+      - acfs-update --help || command -v acfs-update
+
+  - id: acfs.nightly
+    description: Nightly auto-update timer (systemd)
+    category: acfs
+    phase: 10
+    run_as: target_user
+    optional: true
+    enabled_by_default: true
+    generated: false
+    tags: [orchestration, maintenance]
+    dependencies:
+      - acfs.update
+    installed_check:
+      run_as: target_user
+      command: "systemctl --user is-enabled acfs-nightly-update.timer 2>/dev/null"
+    install:
+      - mkdir -p ~/.acfs/scripts ~/.config/systemd/user
+      - |
+        # Install nightly update wrapper script
+        if [[ -n "${ACFS_BOOTSTRAP_DIR:-}" ]] && [[ -f "${ACFS_BOOTSTRAP_DIR}/scripts/lib/nightly_update.sh" ]]; then
+          cp "${ACFS_BOOTSTRAP_DIR}/scripts/lib/nightly_update.sh" ~/.acfs/scripts/nightly-update.sh
+        elif [[ -f "scripts/lib/nightly_update.sh" ]]; then
+          cp "scripts/lib/nightly_update.sh" ~/.acfs/scripts/nightly-update.sh
+        else
+          ACFS_RAW="${ACFS_RAW:-https://raw.githubusercontent.com/Dicklesworthstone/agentic_coding_flywheel_setup/${ACFS_REF:-main}}"
+          CURL_ARGS=(-fsSL)
+          if curl --help all 2>/dev/null | grep -q -- '--proto'; then
+            CURL_ARGS=(--proto '=https' --proto-redir '=https' -fsSL)
+          fi
+          curl "${CURL_ARGS[@]}" "${ACFS_RAW}/scripts/lib/nightly_update.sh" -o ~/.acfs/scripts/nightly-update.sh
+        fi
+        chmod +x ~/.acfs/scripts/nightly-update.sh
+      - |
+        # Install systemd timer unit
+        if [[ -n "${ACFS_BOOTSTRAP_DIR:-}" ]] && [[ -f "${ACFS_BOOTSTRAP_DIR}/scripts/templates/acfs-nightly-update.timer" ]]; then
+          cp "${ACFS_BOOTSTRAP_DIR}/scripts/templates/acfs-nightly-update.timer" ~/.config/systemd/user/acfs-nightly-update.timer
+        elif [[ -f "scripts/templates/acfs-nightly-update.timer" ]]; then
+          cp "scripts/templates/acfs-nightly-update.timer" ~/.config/systemd/user/acfs-nightly-update.timer
+        else
+          ACFS_RAW="${ACFS_RAW:-https://raw.githubusercontent.com/Dicklesworthstone/agentic_coding_flywheel_setup/${ACFS_REF:-main}}"
+          CURL_ARGS=(-fsSL)
+          if curl --help all 2>/dev/null | grep -q -- '--proto'; then
+            CURL_ARGS=(--proto '=https' --proto-redir '=https' -fsSL)
+          fi
+          curl "${CURL_ARGS[@]}" "${ACFS_RAW}/scripts/templates/acfs-nightly-update.timer" -o ~/.config/systemd/user/acfs-nightly-update.timer
+        fi
+      - |
+        # Install systemd service unit
+        if [[ -n "${ACFS_BOOTSTRAP_DIR:-}" ]] && [[ -f "${ACFS_BOOTSTRAP_DIR}/scripts/templates/acfs-nightly-update.service" ]]; then
+          cp "${ACFS_BOOTSTRAP_DIR}/scripts/templates/acfs-nightly-update.service" ~/.config/systemd/user/acfs-nightly-update.service
+        elif [[ -f "scripts/templates/acfs-nightly-update.service" ]]; then
+          cp "scripts/templates/acfs-nightly-update.service" ~/.config/systemd/user/acfs-nightly-update.service
+        else
+          ACFS_RAW="${ACFS_RAW:-https://raw.githubusercontent.com/Dicklesworthstone/agentic_coding_flywheel_setup/${ACFS_REF:-main}}"
+          CURL_ARGS=(-fsSL)
+          if curl --help all 2>/dev/null | grep -q -- '--proto'; then
+            CURL_ARGS=(--proto '=https' --proto-redir '=https' -fsSL)
+          fi
+          curl "${CURL_ARGS[@]}" "${ACFS_RAW}/scripts/templates/acfs-nightly-update.service" -o ~/.config/systemd/user/acfs-nightly-update.service
+        fi
+      - |
+        # Reload systemd and enable the timer
+        systemctl --user daemon-reload
+        systemctl --user enable --now acfs-nightly-update.timer
+    verify:
+      - systemctl --user is-enabled acfs-nightly-update.timer
+    notes:
+      - "Runs acfs-update --yes --quiet --no-self-update daily at 4am with pre-flight health checks"
+      - "Set ACFS_NIGHTLY_SELF_UPDATE=true in a user-unit override to opt into ACFS self-updates"
+      - "Skips if load average > nproc or disk < 2GB free"
+      - "Safe cleanup of build artifacts when disk < 5GB"
+      - "Logs to ~/.acfs/logs/updates/nightly-*.log"
+
+  - id: acfs.doctor
+    description: ACFS doctor command for health checks
+    category: acfs
+    phase: 10
+    run_as: target_user
+    optional: false
+    enabled_by_default: true
+    generated: false
+    tags: [orchestration]
+    notes:
+      - "Install acfs script to the configured ACFS bin dir"
+    install:
+      - |
+        doctor_tmp="$(mktemp "${TMPDIR:-/tmp}/acfs-doctor.XXXXXX")"
+        trap 'rm -f "$doctor_tmp"' EXIT
+        # Install acfs CLI (doctor.sh entrypoint)
+        if [[ -n "${ACFS_BOOTSTRAP_DIR:-}" ]] && [[ -f "${ACFS_BOOTSTRAP_DIR}/scripts/lib/doctor.sh" ]]; then
+          cp "${ACFS_BOOTSTRAP_DIR}/scripts/lib/doctor.sh" "$doctor_tmp"
+        elif [[ -f "scripts/lib/doctor.sh" ]]; then
+          cp "scripts/lib/doctor.sh" "$doctor_tmp"
+        else
+          ACFS_RAW="${ACFS_RAW:-https://raw.githubusercontent.com/Dicklesworthstone/agentic_coding_flywheel_setup/${ACFS_REF:-main}}"
+          CURL_ARGS=(-fsSL)
+          if curl --help all 2>/dev/null | grep -q -- '--proto'; then
+            CURL_ARGS=(--proto '=https' --proto-redir '=https' -fsSL)
+          fi
+          curl "${CURL_ARGS[@]}" "${ACFS_RAW}/scripts/lib/doctor.sh" -o "$doctor_tmp"
+        fi
+        acfs_install_executable_into_primary_bin "$doctor_tmp" "acfs"
+    verify:
+      - acfs doctor --help || command -v acfs

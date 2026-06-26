@@ -1,0 +1,11 @@
+{
+  "tenant": "asc3nd",
+  "orgName": "Asc3nd Collective",
+  "region": "Seattle / King County",
+  "niche": "youth, sports, mentorship",
+  "mission": "Create measurable opportunity, mentorship, leadership, and wellness outcomes for Northwest youth.",
+  "publicApiKey": "pk_mission_YXNjM25kOjY0NWNlZmU3ZGU4NWNl",
+  "apiBaseUrl": "https://api.asc3nd.org",
+  "llmsTxt": true,
+  "schema": true
+}

@@ -1,0 +1,9 @@
+{
+  "compilerOptions": {
+    "baseUrl": ".",
+    "paths": {
+      "@/*": ["./*"],
+      "@asc3nd/core/*": ["../../packages/core/src/*"]
+    }
+  }
+}

@@ -1,0 +1,9 @@
+{
+  "name": "@asc3nd/mission-sdk-js",
+  "version": "0.5.0",
+  "type": "module",
+  "main": "src/index.js",
+  "exports": {
+    ".": "./src/index.js"
+  }
+}
