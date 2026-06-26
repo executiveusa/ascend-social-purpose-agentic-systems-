@@ -1,0 +1,18 @@
+{
+  "name": "@asc3nd/db",
+  "version": "0.5.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.js",
+    "./connection.js": "./src/connection.js",
+    "./repos/tenants.repo.js": "./src/repos/tenants.repo.js",
+    "./repos/contacts.repo.js": "./src/repos/contacts.repo.js",
+    "./repos/crm.repo.js": "./src/repos/crm.repo.js",
+    "./repos/approvals.repo.js": "./src/repos/approvals.repo.js",
+    "./repos/outbox.repo.js": "./src/repos/outbox.repo.js",
+    "./repos/audit.repo.js": "./src/repos/audit.repo.js",
+    "./repos/icm.repo.js": "./src/repos/icm.repo.js"
+  },
+  "dependencies": {}
+}

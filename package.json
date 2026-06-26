@@ -31,7 +31,8 @@
     "smoke:tenant": "node missionctl/missionctl.mjs smoke",
     "backup": "node missionctl/missionctl.mjs backup",
     "adamsreview": "node scripts/adamsreview-lite.mjs",
-    "hostinger:handoff": "node missionctl/missionctl.mjs hostinger handoff"
+    "hostinger:handoff": "node missionctl/missionctl.mjs hostinger handoff",
+    "db:migrate": "node packages/db/scripts/migrate.mjs"
   },
   "devDependencies": {
     "@playwright/test": "1.61.1",

@@ -15,6 +15,7 @@ import { pipelineTemplates, movePipelineItem } from '@asc3nd/core/crm';
 import { applyPublicSubmission, verifyOrigin, verifyPublicKey } from '@asc3nd/core/bridge';
 import { cleanTenantSlug, createPublicKey, createSecretKey, defaultTenantProfile } from '@asc3nd/core/tenant';
 import { checkIdempotency, fingerprintSubmission, recordIdempotency } from '@asc3nd/core/idempotency';
+import { createRepositories, assertProductionStorage, storageMode } from '@asc3nd/db';
 
 const app = express();
 const PORT = Number(process.env.PORT || 4000);
@@ -27,6 +28,10 @@ const allowedOrigins = String(process.env.CORS_ORIGIN || process.env.PUBLIC_SITE
   .split(',')
   .map((origin) => origin.trim())
   .filter(Boolean);
+
+// P0-2: production refuses JSON storage. Postgres is the source of truth.
+assertProductionStorage();
+const repos = createRepositories({ baseDir: DATA_DIR });
 
 if (process.env.NODE_ENV === 'production') {
   if (!process.env.JWT_SECRET || JWT_SECRET === 'dev-only-secret-change-me' || JWT_SECRET.length < 32) {
