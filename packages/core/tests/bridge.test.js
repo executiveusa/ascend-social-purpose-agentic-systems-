@@ -35,12 +35,12 @@ describe('public frontend bridge', () => {
   it('routes public kinds to the correct CRM pipeline', () => {
     const kinds = [
       ['volunteer', 'volunteer'],
-      ['contact', 'donor'],
-      ['message', 'donor'],
+      ['contact', 'general_inbox'],
+      ['message', 'general_inbox'],
       ['program-application', 'youth_program'],
       ['donation-intent', 'donor'],
       ['impact-story', 'sponsor'],
-      ['newsletter', 'donor'],
+      ['newsletter', 'general_inbox'],
       ['event-rsvp', 'volunteer']
     ];
     for (const [kind, pipeline] of kinds) {

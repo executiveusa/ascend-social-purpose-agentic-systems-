@@ -5,7 +5,8 @@ export const pipelineTemplates = {
   donor: ['New Contact', 'Warm', 'First Gift', 'Thanked', 'Impact Update Due', 'Recurring Donor', 'Major Donor', 'Sponsor Candidate'],
   volunteer: ['Applied', 'Screening', 'Orientation', 'Approved', 'Assigned', 'Active', 'Follow-up Needed', 'Inactive'],
   youth_program: ['Inquiry', 'Guardian Contacted', 'Consent Needed', 'Enrolled', 'Active', 'Needs Support', 'Completed', 'Alumni'],
-  sponsor: ['Target', 'Contacted', 'Meeting Set', 'Proposal Sent', 'Committed', 'Renewal Due']
+  sponsor: ['Target', 'Contacted', 'Meeting Set', 'Proposal Sent', 'Committed', 'Renewal Due'],
+  general_inbox: ['New', 'Triaged', 'In Progress', 'Waiting', 'Done', 'Archived']
 };
 
 export function id(prefix = 'crm') { return `${prefix}_${crypto.randomBytes(6).toString('hex')}`; }
@@ -87,15 +88,15 @@ export function movePipelineItem(items = [], itemId, nextStage) {
 
 export function publicKindToPipeline(kind) {
   return {
-    contact: 'donor',
-    message: 'donor',
+    contact: 'general_inbox',
+    message: 'general_inbox',
     volunteer: 'volunteer',
     'program-application': 'youth_program',
-    newsletter: 'donor',
+    newsletter: 'general_inbox',
     'event-rsvp': 'volunteer',
     'donation-intent': 'donor',
     'impact-story': 'sponsor'
-  }[kind] || 'donor';
+  }[kind] || 'general_inbox';
 }
 
 export function publicKindToTitle(kind, payload = {}) {

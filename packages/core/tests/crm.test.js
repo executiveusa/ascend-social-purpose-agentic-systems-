@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { upsertContact, addInteraction, createPipelineItem, movePipelineItem } from '../src/crm.js';
+import { upsertContact, addInteraction, createPipelineItem, movePipelineItem, publicKindToPipeline } from '../src/crm.js';
 
 describe('nonprofit CRM core', () => {
   it('deduplicates contacts by email and preserves tags', () => {
@@ -20,5 +20,19 @@ describe('nonprofit CRM core', () => {
     const first = createPipelineItem([], { pipeline: 'funding', title: 'Grant' }).item;
     const { item } = movePipelineItem([first], first.id, 'Submitted');
     expect(item.stage).toBe('Submitted');
+  });
+
+  it('routes every public kind to the acceptance-criteria pipeline', () => {
+    const cases = [
+      ['volunteer', 'volunteer'],
+      ['contact', 'general_inbox'],
+      ['program-application', 'youth_program'],
+      ['donation-intent', 'donor'],
+      ['impact-story', 'sponsor']
+    ];
+    for (const [kind, pipeline] of cases) {
+      const item = createPipelineItem([], { pipeline: publicKindToPipeline(kind), title: kind, contactId: 'c1' }).item;
+      expect(item.pipeline, `${kind} -> ${pipeline}`).toBe(pipeline);
+    }
   });
 });
