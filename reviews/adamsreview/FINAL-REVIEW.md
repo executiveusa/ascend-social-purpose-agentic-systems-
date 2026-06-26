@@ -1,6 +1,6 @@
 # AdamsReview-Lite Final Review — Mission OS v0.5
 
-Generated: 2026-06-26T13:31:39.832Z
+Generated: 2026-06-26T20:41:08.145Z
 
 Modeled after the adamsreview pattern: multi-lens review, validation gates, persistent JSON artifact, and fix-oriented findings.
 
