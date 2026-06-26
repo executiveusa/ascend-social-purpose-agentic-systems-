@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import crypto from 'node:crypto';
 import { assertTenantBoundary } from './safety.js';
 
 export const stageDefinitions = [
@@ -80,4 +81,108 @@ function walk(root, current, results) {
 
 function writeIfMissing(file, content) {
   if (!fs.existsSync(file)) fs.writeFileSync(file, content, 'utf8');
+}
+
+// P0-5: ICM runner hardening.
+// Validates tenant paths, reads Layer 0-4 context, refuses path traversal,
+// writes result.md / audit.json / approval-request.json, indexes artifact
+// metadata, never loads unrelated tenant files.
+
+export function validateStageName(stage) {
+  if (!/^[a-z0-9][a-z0-9_]*$/.test(stage)) {
+    throw new Error(`Invalid stage name: ${stage}. Use lowercase letters, numbers, and underscores.`);
+  }
+  return stage;
+}
+
+export function safeStagePath(base, tenantId, stage, filename = '') {
+  assertTenantBoundary(tenantId, `${stage}/${filename}`);
+  validateStageName(stage);
+  const root = tenantRoot(base, tenantId);
+  const target = path.join(root, 'stages', stage, 'output');
+  const resolved = filename ? path.resolve(target, filename) : target;
+  // Ensure the resolved path is inside the stage output dir (refuse traversal).
+  if (!resolved.startsWith(path.resolve(target)) && resolved !== path.resolve(target)) {
+    throw new Error('Path traversal refused. Stage output cannot escape the stage output directory.');
+  }
+  return resolved;
+}
+
+export function readStageContext({ base, tenantId, stage }) {
+  assertTenantBoundary(tenantId, stage);
+  validateStageName(stage);
+  const root = tenantRoot(base, tenantId);
+  const stageDir = path.join(root, 'stages', stage);
+  if (!fs.existsSync(stageDir)) throw new Error(`Stage not found: ${stage}`);
+
+  // Layer 0: AGENT.md
+  const agent = readText(path.join(root, 'AGENT.md'));
+  // Layer 1: CONTEXT.md
+  const workspace = readText(path.join(root, 'CONTEXT.md'));
+  // Layer 2: stage CONTEXT.md
+  const stageContext = readText(path.join(stageDir, 'CONTEXT.md'));
+  // Layer 3: _config/*.md
+  const configDir = path.join(root, '_config');
+  const config = fs.existsSync(configDir)
+    ? fs.readdirSync(configDir).filter((f) => f.endsWith('.md')).map((f) => ({ file: f, content: readText(path.join(configDir, f)) }))
+    : [];
+  // Layer 3b: stage references/*.md
+  const refsDir = path.join(stageDir, 'references');
+  const references = fs.existsSync(refsDir)
+    ? fs.readdirSync(refsDir).filter((f) => f.endsWith('.md')).map((f) => ({ file: f, content: readText(path.join(refsDir, f)) }))
+    : [];
+  // Layer 4: previous stage output (best effort)
+  const previousStage = stageDefinitions[stageDefinitions.findIndex(([s]) => s === stage) - 1];
+  const previousOutput = previousStage ? readPreviousOutput(base, tenantId, previousStage[0]) : null;
+
+  return { agent, workspace, stageContext, config, references, previousStage: previousStage?.[0] || null, previousOutput };
+}
+
+function readPreviousOutput(base, tenantId, stage) {
+  const dir = path.join(tenantRoot(base, tenantId), 'stages', stage, 'output');
+  if (!fs.existsSync(dir)) return null;
+  const result = path.join(dir, 'result.md');
+  return fs.existsSync(result) ? readText(result) : null;
+}
+
+function readText(file) {
+  try { return fs.readFileSync(file, 'utf8'); } catch { return ''; }
+}
+
+export function runIcmStage({ base = 'icm', tenantId = 'asc3nd', stage, result = '', audit = {}, approvalRequest = null, onArtifact } = {}) {
+  assertTenantBoundary(tenantId, stage);
+  validateStageName(stage);
+  const context = readStageContext({ base, tenantId, stage });
+  const outDir = safeStagePath(base, tenantId, stage);
+  fs.mkdirSync(outDir, { recursive: true });
+
+  const now = new Date().toISOString();
+  const artifacts = [];
+
+  // result.md
+  const resultPath = path.join(outDir, 'result.md');
+  fs.writeFileSync(resultPath, result || `# ${stage} result\n\nGenerated ${now}\n`, 'utf8');
+  artifacts.push({ stage, filename: 'result.md', path: resultPath, createdAt: now });
+
+  // audit.json
+  const auditPath = path.join(outDir, 'audit.json');
+  const auditBody = { stage, tenantId, ranAt: now, contextLayers: { agent: Boolean(context.agent), workspace: Boolean(context.workspace), stageContext: Boolean(context.stageContext), configFiles: context.config.length, referenceFiles: context.references.length, previousStage: context.previousStage }, ...audit };
+  fs.writeFileSync(auditPath, JSON.stringify(auditBody, null, 2), 'utf8');
+  artifacts.push({ stage, filename: 'audit.json', path: auditPath, createdAt: now });
+
+  // approval-request.json (only when needed)
+  if (approvalRequest) {
+    const apPath = path.join(outDir, 'approval-request.json');
+    fs.writeFileSync(apPath, JSON.stringify({ stage, tenantId, createdAt: now, ...approvalRequest }, null, 2), 'utf8');
+    artifacts.push({ stage, filename: 'approval-request.json', path: apPath, createdAt: now });
+  }
+
+  // Index artifact metadata via callback (wired to the DB repo in the API).
+  if (typeof onArtifact === 'function') {
+    for (const a of artifacts) {
+      onArtifact({ id: `icm_${crypto.randomBytes(4).toString('hex')}`, tenantId, ...a });
+    }
+  }
+
+  return { stage, tenantId, outDir, artifacts, context };
 }

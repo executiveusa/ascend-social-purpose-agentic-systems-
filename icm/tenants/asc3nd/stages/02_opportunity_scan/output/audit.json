@@ -1,0 +1,15 @@
+{
+  "stage": "02_opportunity_scan",
+  "tenantId": "asc3nd",
+  "ranAt": "2026-06-26T18:12:11.708Z",
+  "contextLayers": {
+    "agent": true,
+    "workspace": true,
+    "stageContext": true,
+    "configFiles": 5,
+    "referenceFiles": 0,
+    "previousStage": "01_onboarding"
+  },
+  "source": "missionctl",
+  "actor": "cli"
+}
