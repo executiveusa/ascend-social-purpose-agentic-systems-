@@ -16,6 +16,7 @@ import { applyPublicSubmission, verifyOrigin, verifyPublicKey } from '@asc3nd/co
 import { cleanTenantSlug, createPublicKey, createSecretKey, defaultTenantProfile } from '@asc3nd/core/tenant';
 import { checkIdempotency, fingerprintSubmission, recordIdempotency } from '@asc3nd/core/idempotency';
 import { createRepositories, assertProductionStorage, storageMode } from '@asc3nd/db';
+import { assertTenantAccess, canApproveAction, canViewLane } from '@asc3nd/core/rbac';
 
 const app = express();
 const PORT = Number(process.env.PORT || 4000);
@@ -213,6 +214,11 @@ app.post('/api/approvals/:id/decision', requireAuth, (req, res) => {
   const idx = approvals.findIndex((item) => item.id === req.params.id);
   if (idx < 0) return res.status(404).json({ error: 'Approval not found' });
   const approved = req.body.decision === 'approve';
+  // P0-6: enforce RBAC on approval decisions.
+  if (approved && !canApproveAction(req.user, approvals[idx].risk)) {
+    audit(req.user.tenantId, 'approval.denied', { approvalId: req.params.id, reason: `Role ${req.user.role} cannot approve ${approvals[idx].risk} actions` });
+    return res.status(403).json({ error: `Role '${req.user.role}' cannot approve ${approvals[idx].risk} actions.` });
+  }
   const nextStatus = approved ? 'approved_ready_for_execution' : 'rejected';
   approvals[idx] = {
     ...approvals[idx],

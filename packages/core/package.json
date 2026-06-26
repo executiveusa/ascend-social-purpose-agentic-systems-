@@ -15,6 +15,7 @@
     "./tenant": "./src/tenant.js",
     "./bridge": "./src/bridge.js",
     "./outbox": "./src/outbox.js",
+    "./rbac": "./src/rbac.js",
     "./idempotency": "./src/idempotency.js"
   }
 }
