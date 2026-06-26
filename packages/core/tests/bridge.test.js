@@ -24,4 +24,38 @@ describe('public frontend bridge', () => {
     expect(verifyOrigin('https://evil.org', ['https://client.org'])).toBe(false);
     expect(verifyPublicKey('pk_1', { publicKey: 'pk_1' })).toBe(true);
   });
+
+  it('rejects unknown origins against tenant allowlist', () => {
+    expect(verifyOrigin('https://asc3nd.org', ['https://asc3nd.org', 'http://localhost:3000'])).toBe(true);
+    expect(verifyOrigin('https://evil.org', ['https://asc3nd.org'])).toBe(false);
+    expect(verifyOrigin(undefined, ['https://asc3nd.org'])).toBe(true);
+    expect(verifyOrigin('https://asc3nd.org', [])).toBe(false);
+  });
+
+  it('routes public kinds to the correct CRM pipeline', () => {
+    const kinds = [
+      ['volunteer', 'volunteer'],
+      ['contact', 'donor'],
+      ['message', 'donor'],
+      ['program-application', 'youth_program'],
+      ['donation-intent', 'donor'],
+      ['impact-story', 'sponsor'],
+      ['newsletter', 'donor'],
+      ['event-rsvp', 'volunteer']
+    ];
+    for (const [kind, pipeline] of kinds) {
+      const result = applyPublicSubmission({ kind, payload: { name: 'Test', email: 't@example.org', consent: true }, meta: {}, state: {} });
+      expect(result.ok, `${kind} should succeed`).toBe(true);
+      expect(result.pipelineItem.pipeline, `${kind} -> ${pipeline}`).toBe(pipeline);
+    }
+  });
+
+  it('replays identical idempotency key with same receipt', () => {
+    const state = {};
+    const first = applyPublicSubmission({ kind: 'volunteer', payload: { name: 'Sam', email: 's@example.org' }, meta: {}, state });
+    expect(first.ok).toBe(true);
+    const second = applyPublicSubmission({ kind: 'volunteer', payload: { name: 'Sam', email: 's@example.org' }, meta: {}, state: first.state });
+    expect(second.ok).toBe(true);
+    expect(second.contact.id).toBe(first.contact.id);
+  });
 });
