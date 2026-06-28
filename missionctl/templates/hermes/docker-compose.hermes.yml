@@ -1,0 +1,30 @@
+# Hermes service for Mission OS v0.6 managed bundle
+# This is an overlay — the base compose (postgres, mission-api, site, caddy)
+# comes from docker-compose.production.yml
+
+services:
+  hermes:
+    image: nousresearch/hermes-agent:latest
+    restart: unless-stopped
+    env_file:
+      - hermes/env
+    environment:
+      - HERMES_PROFILE=${HERMES_PROFILE:-default}
+    ports:
+      - "127.0.0.1:8765:8765"  # Dashboard NOT exposed publicly
+    volumes:
+      - ./hermes:/app/config:ro
+      - hermes-data:/app/data
+    depends_on:
+      - mission-api
+      - litellm
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8765/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      - default
+
+volumes:
+  hermes-data:

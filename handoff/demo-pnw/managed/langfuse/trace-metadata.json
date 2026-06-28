@@ -1,0 +1,16 @@
+{
+  "tenantId": "demo-pnw",
+  "traceTags": [
+    "org_id",
+    "tenant_id",
+    "surface",
+    "workflow_kind",
+    "approval_class",
+    "agent_slug",
+    "run_id",
+    "artifact_id",
+    "release_id",
+    "environment"
+  ],
+  "redactionPolicy": "no PII in trace metadata for restricted workflows"
+}

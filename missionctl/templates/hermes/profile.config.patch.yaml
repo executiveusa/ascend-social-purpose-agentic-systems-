@@ -1,0 +1,43 @@
+# Hermes Profile Config Patch
+# Applied on top of Hermes defaults. Mission OS projects this into Hermes at provision time.
+
+profile:
+  name: ${HERMES_PROFILE}
+  description: "Managed agent runtime for ${MISSION_OS_TENANT}"
+
+model_gateway:
+  base_url: ${LITELLM_BASE_URL}
+  api_key_env: LITELLM_API_KEY
+
+observability:
+  provider: langfuse
+  host: ${LANGFUSE_HOST}
+  public_key_env: LANGFUSE_PUBLIC_KEY
+  secret_key_env: LANGFUSE_SECRET_KEY
+  metadata:
+    tenant_id: ${MISSION_OS_TENANT}
+    surface: hermes
+
+mission_os:
+  api_url: ${MISSION_OS_API_URL}
+  tenant: ${MISSION_OS_TENANT}
+  operator_key_env: MISSION_OS_OPERATOR_KEY
+
+safety:
+  disable_browser: true
+  disable_shell: true
+  allowed_tools:
+    - drive.read
+    - calendar.read
+  approval_required_tools:
+    - gmail.send
+    - calendar.create
+    - postiz.schedule
+    - twilio.outboundCall
+  hard_blocked_tools:
+    - browser.applyGrant
+
+dashboard:
+  host: 127.0.0.1
+  port: 8765
+  auth_mode: required

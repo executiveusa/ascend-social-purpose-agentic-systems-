@@ -1,0 +1,15 @@
+{
+  "workspace_name": "Mission OS AI Workspace",
+  "workspace_description": "Staff-facing AI workspace for nonprofit operations. Connected to Mission OS via LiteLLM.",
+  "models": [
+    { "id": "cheap", "name": "Quick Assistant", "description": "Fast, cost-effective for summaries and drafts" },
+    { "id": "standard", "name": "Standard Assistant", "description": "Balanced quality for most tasks" },
+    { "id": "critical", "name": "Critical Assistant", "description": "High-quality for grants, legal, and strategic work" }
+  ],
+  "settings": {
+    "default_model": "standard",
+    "enable_rag": false,
+    "enable_web_search": false,
+    "max_tokens": 4096
+  }
+}

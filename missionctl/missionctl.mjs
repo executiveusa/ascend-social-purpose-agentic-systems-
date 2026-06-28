@@ -9,6 +9,8 @@ import { ensureIcmWorkspace, runIcmStage } from '../packages/core/src/icm.js';
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const DATA_DIR = process.env.DATA_DIR || path.join(ROOT, 'mission-data');
 const ICM_ROOT = process.env.ICM_ROOT || path.join(ROOT, 'icm');
+const TEMPLATES = path.join(ROOT, 'missionctl', 'templates');
+const BUNDLES = path.join(ROOT, 'handoff');
 const args = process.argv.slice(2);
 
 main().catch((err) => { console.error(`missionctl error: ${err.message}`); process.exit(1); });
@@ -25,11 +27,18 @@ async function main() {
   if (group === 'backup') return backup(cmd || value || getFlag('--slug') || 'asc3nd');
   if (group === 'restore') return restore(cmd || value || getFlag('--file'));
   if (group === 'icm' && cmd === 'run') return icmRun(value || getFlag('--slug') || 'asc3nd', args[3] || getFlag('--stage'));
+  // v0.6 managed bundle commands
+  if (group === 'bundle') return bundleCommand(cmd, value || getFlag('--slug') || 'demo-pnw');
+  if (group === 'pack') return packCommand(cmd, value || getFlag('--slug') || 'demo-pnw');
+  if (group === 'hermes') return hermesCommand(cmd, value || getFlag('--slug') || 'demo-pnw');
+  if (group === 'litellm') return litellmCommand(cmd, value || getFlag('--slug') || 'demo-pnw');
+  if (group === 'langfuse') return langfuseCommand(cmd, value || getFlag('--slug') || 'demo-pnw');
+  if (group === 'openwebui') return openwebuiCommand(cmd, value || getFlag('--slug') || 'demo-pnw');
   throw new Error(`Unknown command: ${args.join(' ')}`);
 }
 
 function help() {
-  console.log(`Mission OS control plane\n\nCommands:\n  missionctl doctor\n  missionctl tenant create <slug> --org "Org Name" --region "Seattle" --domain "https://client.org"\n  missionctl tenant keys <slug>\n  missionctl frontend scaffold <slug>\n  missionctl hostinger handoff <slug> --domain "client.org" --api-domain "api.client.org" --email "admin@client.org" --vps-ip "1.2.3.4"\n  missionctl smoke <slug>\n  missionctl backup <slug>\n  missionctl restore <backup-json>\n  missionctl icm run <slug> <stage>\n`);
+  console.log(`Mission OS control plane v0.6\n\nCommands:\n\n  -- v0.5 (existing) --\n  missionctl doctor\n  missionctl tenant create <slug> --org "Org Name" --region "Seattle" --domain "https://client.org"\n  missionctl tenant keys <slug>\n  missionctl frontend scaffold <slug>\n  missionctl hostinger handoff <slug> --domain "client.org" --api-domain "api.client.org" --email "admin@client.org" --vps-ip "1.2.3.4"\n  missionctl smoke <slug>\n  missionctl backup <slug>\n  missionctl restore <backup-json>\n  missionctl icm run <slug> <stage>\n\n  -- v0.6 managed bundle --\n  missionctl bundle up <slug> [--dry-run]\n  missionctl bundle status <slug>\n  missionctl bundle smoke <slug> [--dry-run]\n  missionctl bundle release <slug>\n  missionctl bundle down <slug>\n\n  missionctl pack generate <slug>\n  missionctl pack validate <slug>\n  missionctl pack publish <slug>\n\n  missionctl hermes provision <slug>\n  missionctl hermes health <slug>\n\n  missionctl litellm sync <slug>\n  missionctl langfuse sync <slug>\n  missionctl openwebui sync <slug>\n`);
 }
 
 function icmRun(slugInput, stage) {
@@ -409,6 +418,269 @@ node missionctl/missionctl.mjs hostinger handoff client-slug --domain "client.or
 }
 
 function getFlag(name) { const i = args.indexOf(name); return i >= 0 ? args[i + 1] : undefined; }
+function hasFlag(name) { return args.includes(name); }
+
+// ===================== v0.6 MANAGED BUNDLE =====================
+
+function bundleCommand(cmd, slugInput) {
+  const tenantId = cleanTenantSlug(slugInput);
+  if (cmd === 'up') return bundleUp(tenantId);
+  if (cmd === 'status') return bundleStatus(tenantId);
+  if (cmd === 'smoke') return bundleSmoke(tenantId);
+  if (cmd === 'release') return bundleRelease(tenantId);
+  if (cmd === 'down') return bundleDown(tenantId);
+  throw new Error('Unknown bundle command: ' + cmd + '. Use: up, status, smoke, release, down');
+}
+
+function packCommand(cmd, slugInput) {
+  const tenantId = cleanTenantSlug(slugInput);
+  if (cmd === 'generate') return packGenerate(tenantId);
+  if (cmd === 'validate') return packValidate(tenantId);
+  if (cmd === 'publish') return packPublish(tenantId);
+  throw new Error('Unknown pack command: ' + cmd + '. Use: generate, validate, publish');
+}
+
+function hermesCommand(cmd, slugInput) {
+  const tenantId = cleanTenantSlug(slugInput);
+  if (cmd === 'provision') return hermesProvision(tenantId);
+  if (cmd === 'health') return hermesHealth(tenantId);
+  throw new Error('Unknown hermes command: ' + cmd + '. Use: provision, health');
+}
+
+function litellmCommand(cmd, slugInput) {
+  const tenantId = cleanTenantSlug(slugInput);
+  if (cmd === 'sync') return litellmSync(tenantId);
+  throw new Error('Unknown litellm command: ' + cmd + '. Use: sync');
+}
+
+function langfuseCommand(cmd, slugInput) {
+  const tenantId = cleanTenantSlug(slugInput);
+  if (cmd === 'sync') return langfuseSync(tenantId);
+  throw new Error('Unknown langfuse command: ' + cmd + '. Use: sync');
+}
+
+function openwebuiCommand(cmd, slugInput) {
+  const tenantId = cleanTenantSlug(slugInput);
+  if (cmd === 'sync') return openwebuiSync(tenantId);
+  throw new Error('Unknown openwebui command: ' + cmd + '. Use: sync');
+}
+
+function bundleUp(tenantId) {
+  const dryRun = hasFlag('--dry-run');
+  const profile = readJson(path.join(DATA_DIR, tenantId, 'profile.json'), null);
+  if (!profile) throw new Error('Tenant ' + tenantId + ' does not exist. Run: missionctl tenant create ' + tenantId);
+  const domain = getFlag('--domain') || profile.domain || (tenantId + '.org');
+  const apiDomain = getFlag('--api-domain') || ('api.' + domain.replace(/^https?:\/\//, ''));
+  const adminEmail = getFlag('--email') || 'admin@example.org';
+  const outDir = path.join(BUNDLES, tenantId, 'managed');
+  fs.mkdirSync(path.join(outDir, 'hermes', 'skills'), { recursive: true });
+  fs.mkdirSync(path.join(outDir, 'litellm'), { recursive: true });
+  fs.mkdirSync(path.join(outDir, 'open-webui'), { recursive: true });
+  fs.mkdirSync(path.join(outDir, 'langfuse'), { recursive: true });
+  const envT = fs.readFileSync(path.join(TEMPLATES, 'managed-bundle', 'managed.env.example'), 'utf8');
+  fs.writeFileSync(path.join(outDir, '.env.managed'), envT.replace(/<TENANT_SLUG>/g, tenantId).replace(/<SITE_DOMAIN>/g, domain.replace(/^https?:\/\//,'')).replace(/<API_DOMAIN>/g, apiDomain.replace(/^https?:\/\//,'')).replace(/<ADMIN_EMAIL>/g, adminEmail).replace(/<GENERATED_PG_PASSWORD>/g, crypto.randomBytes(18).toString('base64url')).replace(/<GENERATED_JWT_SECRET>/g, crypto.randomBytes(32).toString('hex')).replace(/<GENERATED_LITELLM_MASTER_KEY>/g, crypto.randomBytes(24).toString('hex')).replace(/<GENERATED_LANGFUSE_SECRET>/g, crypto.randomBytes(32).toString('hex')).replace(/<GENERATED_LANGFUSE_SALT>/g, crypto.randomBytes(16).toString('hex')).replace(/<GENERATED_WEBUI_SECRET>/g, crypto.randomBytes(32).toString('hex')).replace(/<OPENAI_API_KEY>/g,'').replace(/<ANTHROPIC_API_KEY>/g,''), 'utf8');
+  fs.copyFileSync(path.join(TEMPLATES, 'managed-bundle', 'docker-compose.managed.yml'), path.join(outDir, 'docker-compose.managed.yml'));
+  const caddyT = fs.readFileSync(path.join(TEMPLATES, 'managed-bundle', 'Caddyfile.managed'), 'utf8');
+  fs.writeFileSync(path.join(outDir, 'Caddyfile.managed'), caddyT.replace(/\$\{ADMIN_EMAIL\}/g, adminEmail).replace(/\$\{API_DOMAIN\}/g, apiDomain.replace(/^https?:\/\//,'')).replace(/\$\{SITE_DOMAIN\}/g, domain.replace(/^https?:\/\//,'')), 'utf8');
+  fs.copyFileSync(path.join(TEMPLATES, 'managed-bundle', 'prometheus.yml'), path.join(outDir, 'prometheus.yml'));
+  fs.writeFileSync(path.join(outDir, 'grafana-dashboard.json'), JSON.stringify({ title: 'Mission OS v0.6 Dashboard', panels: [] }, null, 2), 'utf8');
+  const hEnv = fs.readFileSync(path.join(TEMPLATES, 'hermes', 'hermes.env.example'), 'utf8');
+  fs.writeFileSync(path.join(outDir, 'hermes', 'env'), hEnv.replace(/<TENANT_SLUG>/g, tenantId).replace(/<GENERATED_OPERATOR_KEY>/g, crypto.randomBytes(24).toString('hex')).replace(/<LITELLM_VIRTUAL_KEY>/g,'<SET_AFTER_LITELLM_SYNC>').replace(/<LANGFUSE_PUBLIC_KEY>/g,'<SET_AFTER_LANGFUSE_SYNC>').replace(/<LANGFUSE_SECRET_KEY>/g,'<SET_AFTER_LANGFUSE_SYNC>'), 'utf8');
+  copyHermesTemplates(tenantId, outDir);
+  const llmT = fs.readFileSync(path.join(TEMPLATES, 'litellm', 'litellm.config.yaml'), 'utf8');
+  fs.writeFileSync(path.join(outDir, 'litellm', 'config.yaml'), llmT.replace(/\$\{TENANT_ID\}/g, tenantId), 'utf8');
+  const owEnvT = fs.readFileSync(path.join(TEMPLATES, 'openwebui', 'openwebui.env.example'), 'utf8');
+  fs.writeFileSync(path.join(outDir, 'open-webui', 'env'), owEnvT.replace(/<GENERATED_WEBUI_SECRET>/g, crypto.randomBytes(32).toString('hex')).replace(/<LITELLM_VIRTUAL_KEY_OPENWEBUI>/g,'<SET_AFTER_LITELLM_SYNC>').replace(/<TENANT_SLUG>/g, tenantId), 'utf8');
+  fs.copyFileSync(path.join(TEMPLATES, 'openwebui', 'workspace.json'), path.join(outDir, 'open-webui', 'workspace.json'));
+  fs.copyFileSync(path.join(TEMPLATES, 'openwebui', 'starter-agents.json'), path.join(outDir, 'open-webui', 'starter-agents.json'));
+  const lfEnvT = fs.readFileSync(path.join(TEMPLATES, 'langfuse', 'langfuse.env.example'), 'utf8');
+  fs.writeFileSync(path.join(outDir, 'langfuse', 'env'), lfEnvT.replace(/<GENERATED_NEXTAUTH_SECRET>/g, crypto.randomBytes(32).toString('hex')).replace(/<GENERATED_SALT>/g, crypto.randomBytes(16).toString('hex')), 'utf8');
+  fs.copyFileSync(path.join(TEMPLATES, 'managed-bundle', 'smoke-test.managed.sh'), path.join(outDir, 'smoke-test.managed.sh'));
+  let gitSha = 'unknown';
+  try { gitSha = require('child_process').execSync('git rev-parse --short HEAD', { cwd: ROOT }).toString().trim(); } catch {}
+  const manifest = JSON.parse(fs.readFileSync(path.join(TEMPLATES, 'managed-bundle', 'release-manifest.json'), 'utf8'));
+  manifest.tenant = tenantId; manifest.created_at = new Date().toISOString(); manifest.git_sha = gitSha; manifest.pack_version = getPackVersion(tenantId);
+  fs.writeFileSync(path.join(outDir, 'release-manifest.json'), JSON.stringify(manifest, null, 2), 'utf8');
+  appendLog({ event: 'bundle.up', tenantId, dryRun, outDir });
+  console.log(JSON.stringify({ ok: true, tenantId, dryRun, outDir, next: dryRun ? ['Review files in ' + outDir, 'Run: missionctl bundle smoke ' + tenantId + ' --dry-run'] : ['cd ' + outDir, 'docker compose -f docker-compose.managed.yml up -d --build'] }, null, 2));
+}
+
+function bundleStatus(tenantId) {
+  const outDir = path.join(BUNDLES, tenantId, 'managed');
+  const exists = fs.existsSync(outDir);
+  const manifest = exists ? readJson(path.join(outDir, 'release-manifest.json'), null) : null;
+  console.log(JSON.stringify({ ok: true, tenantId, bundleExists: exists, manifest }, null, 2));
+}
+
+function bundleSmoke(tenantId) {
+  const outDir = path.join(BUNDLES, tenantId, 'managed');
+  if (!fs.existsSync(outDir)) throw new Error('No bundle found for ' + tenantId + '. Run: missionctl bundle up ' + tenantId + ' --dry-run');
+  const checks = [
+    ['managed compose', fs.existsSync(path.join(outDir, 'docker-compose.managed.yml'))],
+    ['Caddy managed', fs.existsSync(path.join(outDir, 'Caddyfile.managed'))],
+    ['managed env', fs.existsSync(path.join(outDir, '.env.managed'))],
+    ['Hermes env', fs.existsSync(path.join(outDir, 'hermes', 'env'))],
+    ['Hermes SOUL', fs.existsSync(path.join(outDir, 'hermes', 'SOUL.md'))],
+    ['LiteLLM config', fs.existsSync(path.join(outDir, 'litellm', 'config.yaml'))],
+    ['Open WebUI env', fs.existsSync(path.join(outDir, 'open-webui', 'env'))],
+    ['Langfuse env', fs.existsSync(path.join(outDir, 'langfuse', 'env'))],
+    ['smoke-test script', fs.existsSync(path.join(outDir, 'smoke-test.managed.sh'))],
+    ['release manifest', fs.existsSync(path.join(outDir, 'release-manifest.json'))],
+    ['agent pack manifest', fs.existsSync(path.join(DATA_DIR, tenantId, 'tenant-agent-pack', 'manifest.yaml'))],
+    ['Hermes not public', fs.readFileSync(path.join(outDir, 'docker-compose.managed.yml'), 'utf8').includes('127.0.0.1:8765')]
+  ];
+  const failed = checks.filter(([, ok]) => !ok);
+  console.table(checks.map(([name, ok]) => ({ check: name, status: ok ? 'ok' : 'missing' })));
+  appendLog({ event: 'bundle.smoke', tenantId, passed: checks.length - failed.length, failed: failed.length });
+  if (failed.length) { console.log(JSON.stringify({ ok: false, tenantId, failed: failed.length, failedChecks: failed.map(([n]) => n) }, null, 2)); process.exit(1); }
+  console.log(JSON.stringify({ ok: true, tenantId, passed: checks.length, failed: 0 }, null, 2));
+}
+
+function bundleRelease(tenantId) {
+  const outDir = path.join(BUNDLES, tenantId, 'managed');
+  if (!fs.existsSync(outDir)) throw new Error('No bundle found for ' + tenantId);
+  const m = readJson(path.join(outDir, 'release-manifest.json'), {});
+  m.released_at = new Date().toISOString(); m.status = 'released';
+  writeJson(path.join(outDir, 'release-manifest.json'), m);
+  appendLog({ event: 'bundle.release', tenantId });
+  console.log(JSON.stringify({ ok: true, tenantId, released: m.version }, null, 2));
+}
+
+function bundleDown(tenantId) {
+  console.log(JSON.stringify({ ok: true, tenantId, message: 'Stub — run: docker compose -f docker-compose.managed.yml down' }, null, 2));
+}
+
+function packGenerate(tenantId) {
+  const profile = readJson(path.join(DATA_DIR, tenantId, 'profile.json'), null);
+  if (!profile) throw new Error('Tenant ' + tenantId + ' does not exist.');
+  const packDir = path.join(DATA_DIR, tenantId, 'tenant-agent-pack');
+  for (const sub of ['org/locales', 'hermes/skills', 'hermes/schedules', 'hermes/tools', 'mission', 'openwebui', 'prompts', 'tests']) fs.mkdirSync(path.join(packDir, sub), { recursive: true });
+  const packVersion = '1.0.0-' + Date.now();
+  writeYaml(path.join(packDir, 'manifest.yaml'), { packId: tenantId + '-agent-pack', version: packVersion, tenantId, createdAt: new Date().toISOString(), agents: ['founder','grants','comms','programs','board-packet','donor-followup','volunteer-coordinator','impact-report'], litellmModels: ['openai/gpt-4.1-mini','anthropic/claude-sonnet-4.5'], openWebuiWorkspace: true, langfuseProject: true });
+  writeJson(path.join(packDir, 'org', 'org-profile.json'), { tenantId, orgName: profile.orgName, region: profile.region, mission: profile.mission, programs: profile.programs });
+  writeJson(path.join(packDir, 'org', 'brand.json'), { name: profile.orgName, colors: { primary: '#2563eb', accent: '#059669' }, tone: 'warm, direct, nonprofit-friendly' });
+  writeJson(path.join(packDir, 'org', 'locales', 'en-US.json'), { language: 'en-US', greeting: 'Welcome to Mission OS' });
+  copyHermesTemplates(tenantId, packDir);
+  for (const skill of ['founder','grants','comms','programs','board-packet','donor-followup','volunteer-coordinator','impact-report']) { copyTemplate('hermes/skills/' + skill + '.md', path.join(packDir, 'hermes', 'skills', skill + '.md'), profile); }
+  writeYaml(path.join(packDir, 'hermes', 'config.patch.yaml'), { profile: tenantId + '-profile', model_gateway: 'http://litellm:4000' });
+  writeYaml(path.join(packDir, 'hermes', 'schedules', 'opportunity-radar.cron.yaml'), { name: 'opportunity-radar', cron: '0 9 * * 1', agent: 'grants' });
+  writeYaml(path.join(packDir, 'hermes', 'schedules', 'weekly-board-digest.cron.yaml'), { name: 'weekly-board-digest', cron: '0 8 * * 5', agent: 'board-packet' });
+  writeYaml(path.join(packDir, 'hermes', 'schedules', 'monthly-impact-report.cron.yaml'), { name: 'monthly-impact-report', cron: '0 8 1 * *', agent: 'impact-report' });
+  const allowlist = JSON.parse(fs.readFileSync(path.join(ROOT, 'config', 'tool-allowlist.json'), 'utf8'));
+  writeYaml(path.join(packDir, 'hermes', 'tools', 'allowlist.yaml'), allowlist);
+  writeYaml(path.join(packDir, 'hermes', 'tools', 'env-map.yaml'), { LITELLM_BASE_URL: 'http://litellm:4000', MISSION_OS_API_URL: 'http://mission-api:4000', LANGFUSE_HOST: 'http://langfuse:3000' });
+  writeYaml(path.join(packDir, 'mission', 'policy.yaml'), { classes: { green: 'internal', yellow: 'draft', orange: 'external', red: 'money/legal/youth' }, hardBlocks: ['no auto grant submission','no auto youth/donor communication'] });
+  writeYaml(path.join(packDir, 'mission', 'workflows.yaml'), { workflows: ['opportunity-scan','grant-draft','campaign-draft','board-packet','impact-report'] });
+  writeYaml(path.join(packDir, 'mission', 'approvals.yaml'), { autoApprove: ['green'], requireApproval: ['orange','red'], neverAutoApprove: ['red'] });
+  writeYaml(path.join(packDir, 'mission', 'dashboard-panels.yaml'), { panels: ['active-agents','pending-approvals','recent-artifacts','model-spend','health'] });
+  fs.copyFileSync(path.join(TEMPLATES, 'openwebui', 'workspace.json'), path.join(packDir, 'openwebui', 'workspace.json'));
+  fs.copyFileSync(path.join(TEMPLATES, 'openwebui', 'starter-agents.json'), path.join(packDir, 'openwebui', 'starter-agents.json'));
+  writeJson(path.join(packDir, 'openwebui', 'models.json'), { models: ['cheap','standard','critical'] });
+  for (const p of ['board-packet','donor-followup','grant-triage','impact-story']) fs.writeFileSync(path.join(packDir, 'prompts', p + '.md'), '# ' + p.replace(/-/g,' ') + '\n\nPrompt template for ' + p + '.\n', 'utf8');
+  writeJson(path.join(packDir, 'tests', 'smoke.json'), { checks: ['manifest exists','all skills present','tool allowlist valid'] });
+  writeJson(path.join(packDir, 'tests', 'evals.json'), { evals: [] });
+  appendLog({ event: 'pack.generated', tenantId, packVersion });
+  console.log(JSON.stringify({ ok: true, tenantId, packDir, packVersion }, null, 2));
+}
+
+function packValidate(tenantId) {
+  const packDir = path.join(DATA_DIR, tenantId, 'tenant-agent-pack');
+  if (!fs.existsSync(path.join(packDir, 'manifest.yaml'))) throw new Error('No agent pack found for ' + tenantId);
+  const required = ['manifest.yaml','org/org-profile.json','org/brand.json','hermes/config.patch.yaml','hermes/SOUL.md','hermes/MEMORY.md','hermes/USER.md','hermes/skills/founder.md','hermes/skills/grants.md','hermes/skills/comms.md','hermes/skills/programs.md','hermes/skills/board-packet.md','hermes/skills/donor-followup.md','hermes/skills/volunteer-coordinator.md','hermes/skills/impact-report.md','hermes/schedules/opportunity-radar.cron.yaml','hermes/schedules/weekly-board-digest.cron.yaml','hermes/schedules/monthly-impact-report.cron.yaml','hermes/tools/allowlist.yaml','hermes/tools/env-map.yaml','mission/policy.yaml','mission/workflows.yaml','mission/approvals.yaml','mission/dashboard-panels.yaml','openwebui/models.json','openwebui/workspace.json','openwebui/starter-agents.json','prompts/board-packet.md','prompts/donor-followup.md','prompts/grant-triage.md','prompts/impact-story.md','tests/smoke.json','tests/evals.json'];
+  const missing = required.filter(f => !fs.existsSync(path.join(packDir, f)));
+  console.table(required.map(f => ({ file: f, status: fs.existsSync(path.join(packDir, f)) ? 'ok' : 'missing' })));
+  appendLog({ event: 'pack.validated', tenantId, missing: missing.length });
+  if (missing.length) { console.log(JSON.stringify({ ok: false, tenantId, missing }, null, 2)); process.exit(1); }
+  console.log(JSON.stringify({ ok: true, tenantId, validated: required.length, allPresent: true }, null, 2));
+}
+
+function packPublish(tenantId) {
+  const packDir = path.join(DATA_DIR, tenantId, 'tenant-agent-pack');
+  if (!fs.existsSync(path.join(packDir, 'manifest.yaml'))) throw new Error('No agent pack found for ' + tenantId);
+  appendLog({ event: 'agent.pack_published', tenantId });
+  console.log(JSON.stringify({ ok: true, tenantId, publishedAt: new Date().toISOString(), message: 'Pack published. AGENT.PACK_PUBLISHED event logged.' }, null, 2));
+}
+
+function hermesProvision(tenantId) {
+  const packDir = path.join(DATA_DIR, tenantId, 'tenant-agent-pack');
+  if (!fs.existsSync(path.join(packDir, 'manifest.yaml'))) throw new Error('No agent pack. Run: missionctl pack generate ' + tenantId);
+  const outDir = path.join(BUNDLES, tenantId, 'managed');
+  fs.mkdirSync(path.join(outDir, 'hermes', 'skills'), { recursive: true });
+  copyHermesTemplates(tenantId, outDir);
+  const hEnv = fs.readFileSync(path.join(TEMPLATES, 'hermes', 'hermes.env.example'), 'utf8');
+  fs.writeFileSync(path.join(outDir, 'hermes', 'env'), hEnv.replace(/<TENANT_SLUG>/g, tenantId).replace(/<GENERATED_OPERATOR_KEY>/g, crypto.randomBytes(24).toString('hex')).replace(/<LITELLM_VIRTUAL_KEY>/g,'<SET_AFTER_LITELLM_SYNC>').replace(/<LANGFUSE_PUBLIC_KEY>/g,'<SET_AFTER_LANGFUSE_SYNC>').replace(/<LANGFUSE_SECRET_KEY>/g,'<SET_AFTER_LANGFUSE_SYNC>'), 'utf8');
+  appendLog({ event: 'agent.provision_requested', tenantId });
+  console.log(JSON.stringify({ ok: true, tenantId, hermesConfigDir: path.join(outDir, 'hermes'), message: 'Hermes provisioned. Dashboard bound to 127.0.0.1:8765 — not public.' }, null, 2));
+}
+
+function hermesHealth(tenantId) {
+  const outDir = path.join(BUNDLES, tenantId, 'managed');
+  const configured = fs.existsSync(path.join(outDir, 'hermes', 'env'));
+  console.log(JSON.stringify({ ok: true, tenantId, hermesConfigured: configured, status: configured ? 'provisioned' : 'not-provisioned', dashboard: '127.0.0.1:8765 (not public)' }, null, 2));
+}
+
+function litellmSync(tenantId) {
+  const outDir = path.join(BUNDLES, tenantId, 'managed', 'litellm');
+  fs.mkdirSync(outDir, { recursive: true });
+  const cfg = fs.readFileSync(path.join(TEMPLATES, 'litellm', 'litellm.config.yaml'), 'utf8').replace(/\$\{TENANT_ID\}/g, tenantId);
+  fs.writeFileSync(path.join(outDir, 'config.yaml'), cfg, 'utf8');
+  const envT = fs.readFileSync(path.join(TEMPLATES, 'litellm', 'litellm.env.example'), 'utf8');
+  fs.writeFileSync(path.join(outDir, 'env'), envT.replace(/<GENERATED_MASTER_KEY>/g, crypto.randomBytes(24).toString('hex')).replace(/<LANGFUSE_PUBLIC_KEY>/g,'<SET_AFTER_LANGFUSE_SYNC>').replace(/<LANGFUSE_SECRET_KEY>/g,'<SET_AFTER_LANGFUSE_SYNC>'), 'utf8');
+  appendLog({ event: 'litellm.synced', tenantId });
+  console.log(JSON.stringify({ ok: true, tenantId, configDir: outDir, surfaces: 8, message: 'LiteLLM config generated. Provider keys are placeholders.' }, null, 2));
+}
+
+function langfuseSync(tenantId) {
+  const outDir = path.join(BUNDLES, tenantId, 'managed', 'langfuse');
+  fs.mkdirSync(outDir, { recursive: true });
+  const envT = fs.readFileSync(path.join(TEMPLATES, 'langfuse', 'langfuse.env.example'), 'utf8');
+  fs.writeFileSync(path.join(outDir, 'env'), envT.replace(/<GENERATED_NEXTAUTH_SECRET>/g, crypto.randomBytes(32).toString('hex')).replace(/<GENERATED_SALT>/g, crypto.randomBytes(16).toString('hex')), 'utf8');
+  writeJson(path.join(outDir, 'trace-metadata.json'), { tenantId, traceTags: ['org_id','tenant_id','surface','workflow_kind','approval_class','agent_slug','run_id','artifact_id','release_id','environment'], redactionPolicy: 'no PII in trace metadata for restricted workflows' });
+  appendLog({ event: 'langfuse.synced', tenantId });
+  console.log(JSON.stringify({ ok: true, tenantId, configDir: outDir, message: 'Langfuse config generated. Trace metadata plan written.' }, null, 2));
+}
+
+function openwebuiSync(tenantId) {
+  const outDir = path.join(BUNDLES, tenantId, 'managed', 'open-webui');
+  fs.mkdirSync(outDir, { recursive: true });
+  const envT = fs.readFileSync(path.join(TEMPLATES, 'openwebui', 'openwebui.env.example'), 'utf8');
+  fs.writeFileSync(path.join(outDir, 'env'), envT.replace(/<GENERATED_WEBUI_SECRET>/g, crypto.randomBytes(32).toString('hex')).replace(/<LITELLM_VIRTUAL_KEY_OPENWEBUI>/g,'<SET_AFTER_LITELLM_SYNC>').replace(/<TENANT_SLUG>/g, tenantId), 'utf8');
+  fs.copyFileSync(path.join(TEMPLATES, 'openwebui', 'workspace.json'), path.join(outDir, 'workspace.json'));
+  fs.copyFileSync(path.join(TEMPLATES, 'openwebui', 'starter-agents.json'), path.join(outDir, 'starter-agents.json'));
+  appendLog({ event: 'openwebui.synced', tenantId });
+  console.log(JSON.stringify({ ok: true, tenantId, configDir: outDir, starterAgents: 6, message: 'Open WebUI config generated. Connects to LiteLLM only.' }, null, 2));
+}
+
+function copyHermesTemplates(tenantId, outDir) {
+  const hermesOut = path.join(outDir, 'hermes');
+  fs.mkdirSync(path.join(hermesOut, 'skills'), { recursive: true });
+  const profile = readJson(path.join(DATA_DIR, tenantId, 'profile.json'), defaultTenantProfile({ tenantId }));
+  copyTemplate('hermes/SOUL.md', path.join(hermesOut, 'SOUL.md'), profile);
+  copyTemplate('hermes/MEMORY.md', path.join(hermesOut, 'MEMORY.md'), profile);
+  copyTemplate('hermes/USER.md', path.join(hermesOut, 'USER.md'), profile);
+  for (const skill of ['founder','grants','comms','programs','board-packet','donor-followup','volunteer-coordinator','impact-report']) copyTemplate('hermes/skills/' + skill + '.md', path.join(hermesOut, 'skills', skill + '.md'), profile);
+}
+
+function copyTemplate(relPath, dest, profile) {
+  const src = path.join(TEMPLATES, relPath);
+  if (!fs.existsSync(src)) { fs.writeFileSync(dest, '# ' + path.basename(relPath) + '\n\nTemplate not found.\n', 'utf8'); return; }
+  let content = fs.readFileSync(src, 'utf8');
+  content = content.replace(/\$\{ORG_NAME\}/g, profile.orgName || 'Organization').replace(/\$\{MISSION_OS_TENANT\}/g, profile.tenantId || 'tenant').replace(/\$\{ORG_MISSION\}/g, profile.mission || 'Nonprofit mission').replace(/\$\{ORG_PROGRAMS\}/g, profile.programs || 'Programs').replace(/\$\{PACK_ID\}/g, (profile.tenantId || 'tenant') + '-agent-pack').replace(/\$\{PACK_VERSION\}/g, '1.0.0');
+  fs.writeFileSync(dest, content, 'utf8');
+}
+
+function getPackVersion(tenantId) {
+  const p = path.join(DATA_DIR, tenantId, 'tenant-agent-pack', 'manifest.yaml');
+  return fs.existsSync(p) ? '1.0.0' : 'none';
+}
+
+function writeYaml(file, obj) {
+  const lines = [];
+  const serialize = (val, indent) => { const pad = '  '.repeat(indent); if (val === null || val === undefined) { lines.push(pad + 'null'); return; } if (typeof val === 'string') { lines.push(pad + val); return; } if (typeof val === 'number' || typeof val === 'boolean') { lines.push(pad + val); return; } if (Array.isArray(val)) { for (const item of val) { if (typeof item === 'object' && item !== null) { lines.push(pad + '-'); serialize(item, indent + 1); } else { lines.push(pad + '- ' + item); } } return; } for (const [k, v] of Object.entries(val)) { if (typeof v === 'object' && v !== null && !Array.isArray(v)) { lines.push(pad + k + ':'); serialize(v, indent + 1); } else if (Array.isArray(v)) { lines.push(pad + k + ':'); serialize(v, indent); } else { lines.push(pad + k + ': ' + v); } } };
+  serialize(obj, 0);
+  fs.writeFileSync(file, lines.join('\n') + '\n', 'utf8');
+}
+
 function writeJson(file, value) { fs.mkdirSync(path.dirname(file), { recursive: true }); fs.writeFileSync(file, JSON.stringify(value, null, 2), 'utf8'); }
 function readJson(file, fallback) { try { return JSON.parse(fs.readFileSync(file, 'utf8')); } catch { return fallback; } }
 function hash(v) { return crypto.createHash('sha256').update(String(v)).digest('hex'); }
@@ -416,4 +688,4 @@ function titleCase(slug) { return slug.split('-').map((s) => s.slice(0,1).toUppe
 function appendLog(entry) { const file = path.join(DATA_DIR, 'missionctl.jsonl'); fs.mkdirSync(path.dirname(file), { recursive: true }); fs.appendFileSync(file, JSON.stringify({ ...entry, at: new Date().toISOString() }) + '\n'); }
 function readDirJson(dir) { const out = {}; if (!fs.existsSync(dir)) return out; for (const f of fs.readdirSync(dir)) if (f.endsWith('.json')) out[f] = readJson(path.join(dir, f), null); return out; }
 function readIcmFiles(dir) { const out = {}; if (!fs.existsSync(dir)) return out; const walk = (d) => { for (const e of fs.readdirSync(d, { withFileTypes: true })) { const full = path.join(d, e.name); if (e.isDirectory()) walk(full); else out[path.relative(dir, full)] = fs.readFileSync(full, 'utf8'); } }; walk(dir); return out; }
-function normalizeDomain(value = '') { const raw = String(value || '').trim(); if (!raw) return ''; return /^https?:\/\//.test(raw) ? raw.replace(/\/$/, '') : `https://${raw.replace(/\/$/, '')}`; }
+function normalizeDomain(value) { const raw = String(value || '').trim(); if (!raw) return ''; return /^https?:\/\//.test(raw) ? raw.replace(/\/$/, '') : 'https://' + raw.replace(/\/$/, ''); }
