@@ -1,7 +1,7 @@
 # MEMORY — Agent Runtime State
 
 ## Organization
-- Name:  Demo PNW Nonprofit
+- Name: Demo PNW Nonprofit
 - Tenant: demo-pnw
 - Region: Pacific Northwest
 - Segment: nonprofit

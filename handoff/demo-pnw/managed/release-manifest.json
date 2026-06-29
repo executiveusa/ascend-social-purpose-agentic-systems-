@@ -2,7 +2,7 @@
   "version": "0.6.0",
   "tenant": "demo-pnw",
   "bundle_type": "managed",
-  "created_at": "2026-06-28T04:27:23.876Z",
+  "created_at": "2026-06-29T04:39:48.130Z",
   "git_sha": "unknown",
   "services": {
     "postgres": {
