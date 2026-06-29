@@ -1,0 +1,16 @@
+core_docs:
+  - README.md
+  - AGENTS.md
+  - SKILLS.md
+  - HANDOFF.md
+  - docs/PRODUCT-BOUNDARIES.md
+  - docs/FLYWHEEL.md
+  - docs/SAFETY.md
+  - docs/V0.6-REPO-INVENTORY.md
+  - docs/V0.6-GAP-MAP.md
+  - docs/V0.6-MANAGED-HERMES-BUNDLE.md
+  - docs/HERMES-MISSION-OS-CONTRACT.md
+  - docs/TENANT-AGENT-PACK.md
+  - openspec/changes/mission-os-v0-6-managed-hermes-bundle/proposal.md
+  - openspec/changes/mission-os-v0-6-managed-hermes-bundle/design.md
+  - openspec/changes/mission-os-v0-6-managed-hermes-bundle/tasks.md

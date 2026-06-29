@@ -40,6 +40,21 @@ Every work session logs:
 | Decisions | D1 (Rust deferred), D2 (OpenSpec supersedes), D3 (jcodemunch locked), D4 (Hermes managed), D5 (No client frontend) |
 | Git commits | `0403de6` — v0.5 baseline git init |
 
+### Session 2 — 2026-06-29
+
+| Field | Value |
+|---|---|
+| Session ID | 2026-06-29-002 |
+| Date | 2026-06-29T01:38:00Z |
+| Agent/Builder | Antigravity Builder |
+| Model | Gemini 3.5 Flash |
+| MCPs used | jcodemunch-mcp |
+| Files created | `packages/core/src/events.js`, `packages/core/src/policy.js`, `packages/core/src/approval-lifecycle.js`, `packages/core/src/artifacts.js`, `packages/core/src/managed-agents.js`, `packages/core/src/dashboard-state.js`, `packages/core/tests/events.test.js`, `packages/core/tests/approval-lifecycle.test.js`, `packages/core/tests/artifacts.test.js`, `packages/core/tests/managed-agents.test.js`, `packages/core/tests/dashboard-state.test.js`, `db/migrations/0003_v06_core_platform.sql`, `docs/dev-load-always.yaml` |
+| Files modified | `.gitignore`, `missionctl/missionctl.mjs`, `missionctl/templates/managed-bundle/managed.env.example`, `missionctl/templates/hermes/docker-compose.hermes.yml`, `missionctl/templates/managed-bundle/docker-compose.managed.yml`, `openspec/changes/mission-os-v0-6-managed-hermes-bundle/tasks.md` |
+| Tests written | 5 test files (`events.test.js`, `approval-lifecycle.test.js`, `artifacts.test.js`, `managed-agents.test.js`, `dashboard-state.test.js`) |
+| Tests passed | 61/61 (all tests pass) |
+| Decisions | D6 (Core platform state layer implemented, file-backed fallbacks + database migrations ready) |
+
 ## Rules
 
 1. Every session must be logged here before ending.
