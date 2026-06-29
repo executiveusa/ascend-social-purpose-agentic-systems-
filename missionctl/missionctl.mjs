@@ -550,7 +550,17 @@ function bundleSmoke(tenantId) {
     ['event journal', fs.existsSync(path.join(DATA_DIR, tenantId, 'events.jsonl'))],
     ['artifact registry', fs.existsSync(path.join(DATA_DIR, tenantId, 'artifacts.json'))],
     ['managed agents state', fs.existsSync(path.join(DATA_DIR, tenantId, 'managed-agents.json'))],
-    ['dashboard state', fs.existsSync(path.join(DATA_DIR, tenantId, 'dashboard-state.json'))]
+    ['dashboard state', fs.existsSync(path.join(DATA_DIR, tenantId, 'dashboard-state.json'))],
+    // Phase 3: Operator API + Worker Runtime Contracts
+    ['operator auth helper', fs.existsSync(path.join(ROOT, 'services', 'mission-api', 'src', 'operator', 'auth-middleware.js'))],
+    ['dashboard-state API helper', fs.existsSync(path.join(ROOT, 'services', 'mission-api', 'src', 'operator', 'dashboard-state.js'))],
+    ['events API helper', fs.existsSync(path.join(ROOT, 'services', 'mission-api', 'src', 'operator', 'events.js'))],
+    ['artifacts API helper', fs.existsSync(path.join(ROOT, 'services', 'mission-api', 'src', 'operator', 'artifacts.js'))],
+    ['managed-agents API helper', fs.existsSync(path.join(ROOT, 'services', 'mission-api', 'src', 'operator', 'managed-agents.js'))],
+    ['runs API helper', fs.existsSync(path.join(ROOT, 'services', 'mission-api', 'src', 'operator', 'runs.js'))],
+    ['approvals API helper', fs.existsSync(path.join(ROOT, 'services', 'mission-api', 'src', 'operator', 'approvals.js'))],
+    ['worker contracts', fs.existsSync(path.join(ROOT, 'packages', 'core', 'src', 'worker-contracts.js'))],
+    ['server route registration', fs.readFileSync(path.join(ROOT, 'services', 'mission-api', 'server.js'), 'utf8').includes('operatorRouter')]
   ];
   const failed = checks.filter(([, ok]) => !ok);
   console.table(checks.map(([name, ok]) => ({ check: name, status: ok ? 'ok' : 'missing' })));
