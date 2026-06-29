@@ -13,3 +13,10 @@ playwright-report
 test-results
 
 .vercel
+
+# Mission OS generated managed bundle secrets
+handoff/*/managed/.env.managed
+handoff/*/managed/**/*.env
+!handoff/*/managed/**/*.env.example
+!**/*.env.example
+
