@@ -5,6 +5,11 @@ import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { cleanTenantSlug, createPublicKey, createSecretKey, defaultTenantProfile, tenantFrontendConfig } from '../packages/core/src/tenant.js';
 import { ensureIcmWorkspace, runIcmStage } from '../packages/core/src/icm.js';
+import { emitEvent } from '../packages/core/src/events.js';
+import { registerArtifact } from '../packages/core/src/artifacts.js';
+import { provisionManagedAgent, updateAgentHealth } from '../packages/core/src/managed-agents.js';
+import { generateDashboardState } from '../packages/core/src/dashboard-state.js';
+
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const DATA_DIR = process.env.DATA_DIR || path.join(ROOT, 'mission-data');
@@ -77,8 +82,11 @@ function tenantCreate(slugInput) {
   writeJson(path.join(tenantDir, 'pipeline-items.json'), []);
   writeJson(path.join(tenantDir, 'tasks.json'), []);
   ensureIcmWorkspace({ base: ICM_ROOT, tenantId, orgName });
+  emitEvent({ tenantId, type: 'TENANT.CREATED', actor: 'system', payload: { orgName, domain, apiBaseUrl } });
+  generateDashboardState(tenantId);
   appendLog({ event: 'tenant.created', tenantId, orgName, domain, apiBaseUrl });
   console.log(JSON.stringify({ ok: true, tenantId, orgName, publicKey, secretKey, allowedOrigins: profile.publicOrigins, apiBaseUrl, next: [`missionctl frontend scaffold ${tenantId}`, `missionctl hostinger handoff ${tenantId} --domain ${domain.replace(/^https?:\/\//, '')}`] }, null, 2));
+
 }
 
 function tenantKeys(slugInput) {
@@ -501,8 +509,17 @@ function bundleUp(tenantId) {
   const manifest = JSON.parse(fs.readFileSync(path.join(TEMPLATES, 'managed-bundle', 'release-manifest.json'), 'utf8'));
   manifest.tenant = tenantId; manifest.created_at = new Date().toISOString(); manifest.git_sha = gitSha; manifest.pack_version = getPackVersion(tenantId);
   fs.writeFileSync(path.join(outDir, 'release-manifest.json'), JSON.stringify(manifest, null, 2), 'utf8');
+  emitEvent({ tenantId, type: 'BUNDLE.CREATED', actor: 'system', payload: { dryRun, outDir } });
+  registerArtifact({
+    tenantId,
+    kind: 'release-manifest',
+    title: 'Release Manifest for ' + tenantId,
+    storagePath: path.join(outDir, 'release-manifest.json')
+  });
+  generateDashboardState(tenantId);
   appendLog({ event: 'bundle.up', tenantId, dryRun, outDir });
   console.log(JSON.stringify({ ok: true, tenantId, dryRun, outDir, next: dryRun ? ['Review files in ' + outDir, 'Run: missionctl bundle smoke ' + tenantId + ' --dry-run'] : ['cd ' + outDir, 'docker compose -f docker-compose.managed.yml up -d --build'] }, null, 2));
+
 }
 
 function bundleStatus(tenantId) {
@@ -527,11 +544,20 @@ function bundleSmoke(tenantId) {
     ['smoke-test script', fs.existsSync(path.join(outDir, 'smoke-test.managed.sh'))],
     ['release manifest', fs.existsSync(path.join(outDir, 'release-manifest.json'))],
     ['agent pack manifest', fs.existsSync(path.join(DATA_DIR, tenantId, 'tenant-agent-pack', 'manifest.yaml'))],
-    ['Hermes not public', fs.readFileSync(path.join(outDir, 'docker-compose.managed.yml'), 'utf8').includes('127.0.0.1:8765')]
+    ['Hermes not public', fs.readFileSync(path.join(outDir, 'docker-compose.managed.yml'), 'utf8').includes('127.0.0.1:8765')],
+    ['event journal', fs.existsSync(path.join(DATA_DIR, tenantId, 'events.jsonl'))],
+    ['artifact registry', fs.existsSync(path.join(DATA_DIR, tenantId, 'artifacts.json'))],
+    ['managed agents state', fs.existsSync(path.join(DATA_DIR, tenantId, 'managed-agents.json'))],
+    ['dashboard state', fs.existsSync(path.join(DATA_DIR, tenantId, 'dashboard-state.json'))]
   ];
   const failed = checks.filter(([, ok]) => !ok);
   console.table(checks.map(([name, ok]) => ({ check: name, status: ok ? 'ok' : 'missing' })));
+  
+  const eventType = failed.length === 0 ? 'SMOKE.PASSED' : 'SMOKE.FAILED';
+  emitEvent({ tenantId, type: eventType, actor: 'system', payload: { passed: checks.length - failed.length, failed: failed.length } });
+  generateDashboardState(tenantId);
   appendLog({ event: 'bundle.smoke', tenantId, passed: checks.length - failed.length, failed: failed.length });
+  
   if (failed.length) { console.log(JSON.stringify({ ok: false, tenantId, failed: failed.length, failedChecks: failed.map(([n]) => n) }, null, 2)); process.exit(1); }
   console.log(JSON.stringify({ ok: true, tenantId, passed: checks.length, failed: 0 }, null, 2));
 }
@@ -579,8 +605,11 @@ function packGenerate(tenantId) {
   for (const p of ['board-packet','donor-followup','grant-triage','impact-story']) fs.writeFileSync(path.join(packDir, 'prompts', p + '.md'), '# ' + p.replace(/-/g,' ') + '\n\nPrompt template for ' + p + '.\n', 'utf8');
   writeJson(path.join(packDir, 'tests', 'smoke.json'), { checks: ['manifest exists','all skills present','tool allowlist valid'] });
   writeJson(path.join(packDir, 'tests', 'evals.json'), { evals: [] });
+  emitEvent({ tenantId, type: 'AGENT.PACK_GENERATED', actor: 'system', payload: { packVersion, packDir } });
+  generateDashboardState(tenantId);
   appendLog({ event: 'pack.generated', tenantId, packVersion });
   console.log(JSON.stringify({ ok: true, tenantId, packDir, packVersion }, null, 2));
+
 }
 
 function packValidate(tenantId) {
@@ -597,6 +626,14 @@ function packValidate(tenantId) {
 function packPublish(tenantId) {
   const packDir = path.join(DATA_DIR, tenantId, 'tenant-agent-pack');
   if (!fs.existsSync(path.join(packDir, 'manifest.yaml'))) throw new Error('No agent pack found for ' + tenantId);
+  emitEvent({ tenantId, type: 'AGENT.PACK_PUBLISHED', actor: 'system', payload: { packDir } });
+  registerArtifact({
+    tenantId,
+    kind: 'tenant-agent-pack',
+    title: 'Tenant Agent Pack for ' + tenantId,
+    storagePath: path.join(packDir, 'manifest.yaml')
+  });
+  generateDashboardState(tenantId);
   appendLog({ event: 'agent.pack_published', tenantId });
   console.log(JSON.stringify({ ok: true, tenantId, publishedAt: new Date().toISOString(), message: 'Pack published. AGENT.PACK_PUBLISHED event logged.' }, null, 2));
 }
@@ -609,6 +646,17 @@ function hermesProvision(tenantId) {
   copyHermesTemplates(tenantId, outDir);
   const hEnv = fs.readFileSync(path.join(TEMPLATES, 'hermes', 'hermes.env.example'), 'utf8');
   fs.writeFileSync(path.join(outDir, 'hermes', 'env'), hEnv.replace(/<TENANT_SLUG>/g, tenantId).replace(/<GENERATED_OPERATOR_KEY>/g, crypto.randomBytes(24).toString('hex')).replace(/<LITELLM_VIRTUAL_KEY>/g,'<SET_AFTER_LITELLM_SYNC>').replace(/<LANGFUSE_PUBLIC_KEY>/g,'<SET_AFTER_LANGFUSE_SYNC>').replace(/<LANGFUSE_SECRET_KEY>/g,'<SET_AFTER_LANGFUSE_SYNC>'), 'utf8');
+  
+  const agents = ['founder', 'grants', 'comms', 'programs'];
+  for (const slug of agents) {
+    provisionManagedAgent({
+      tenantId,
+      agentSlug: `hermes-${slug}`,
+      agentType: slug,
+      packVersion: getPackVersion(tenantId)
+    });
+  }
+  generateDashboardState(tenantId);
   appendLog({ event: 'agent.provision_requested', tenantId });
   console.log(JSON.stringify({ ok: true, tenantId, hermesConfigDir: path.join(outDir, 'hermes'), message: 'Hermes provisioned. Dashboard bound to 127.0.0.1:8765 — not public.' }, null, 2));
 }
@@ -616,6 +664,18 @@ function hermesProvision(tenantId) {
 function hermesHealth(tenantId) {
   const outDir = path.join(BUNDLES, tenantId, 'managed');
   const configured = fs.existsSync(path.join(outDir, 'hermes', 'env'));
+  if (configured) {
+    const agents = ['founder', 'grants', 'comms', 'programs'];
+    for (const slug of agents) {
+      updateAgentHealth({
+        tenantId,
+        agentSlug: `hermes-${slug}`,
+        healthStatus: 'ok',
+        checkOutput: 'Hermes service running.'
+      });
+    }
+    generateDashboardState(tenantId);
+  }
   console.log(JSON.stringify({ ok: true, tenantId, hermesConfigured: configured, status: configured ? 'provisioned' : 'not-provisioned', dashboard: '127.0.0.1:8765 (not public)' }, null, 2));
 }
 

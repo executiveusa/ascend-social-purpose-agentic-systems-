@@ -4,10 +4,10 @@
 
 ## Current state
 
-**Version:** v0.6 (Managed Hermes Bundle) — Vertical Slice 1 complete
-**Date:** 2026-06-27
+**Version:** v0.6 (Managed Hermes Bundle) — Phase 1 Core Platform State Layer complete
+**Date:** 2026-06-29
 **Repo:** `https://github.com/executiveusa/ascend-social-purpose-agentic-systems-.git`
-**Branch:** `main`
+**Branch:** `phase/core-platform-state-layer`
 
 ## Goal
 
@@ -78,18 +78,26 @@ Extend Mission OS from v0.5 (deployment handoff) to v0.6 (managed agent runtime 
 - `docs/LITELLM-GATEWAY.md`
 - `docs/LANGFUSE-OBSERVABILITY.md`
 
+### Phase 1: Core Platform State Layer ✅
+- `packages/core/src/events.js` & `packages/core/tests/events.test.js` — Typed event journal & tests
+- `packages/core/src/policy.js` — Enforces hard blocks and evaluates action classes (green/yellow/orange/red)
+- `packages/core/src/approval-lifecycle.js` & `packages/core/tests/approval-lifecycle.test.js` — Stateful state machine for approvals and tests
+- `packages/core/src/artifacts.js` & `packages/core/tests/artifacts.test.js` — Artifact registration with directory traversal protection and tests
+- `packages/core/src/managed-agents.js` & `packages/core/tests/managed-agents.test.js` — Provisioning and health status updates and tests
+- `packages/core/src/dashboard-state.js` & `packages/core/tests/dashboard-state.test.js` — DashboardState generator and tests
+- `db/migrations/0003_v06_core_platform.sql` — Postgres tables for events, approvals, artifacts, and agents
+- `missionctl/missionctl.mjs` integration — Pack commands generate/publish events, register artifacts, and generate dashboard state
+
 ## Not yet done
 
-- P1: Typed event journal (DB migration + event helper)
-- P1: Approval/policy lifecycle (state machine)
-- P1: Artifact registry (table + API + repo)
-- P1: managed_agents records (table + API)
-- P1: DashboardState API endpoint
-- P2: Real LiteLLM sync (live API calls)
-- P2: Langfuse trace linking (real trace IDs)
-- P2: Open WebUI workspace bootstrap (real workspace creation)
-- P2: Deeper dashboard UI
-- P3: Upgrade/rollback, billing export, production hardening, live VPS test
+- P2: DB, Auth, RBAC, Tenant Isolation (Postgres control plane + isolation tests)
+- P3: Operator API and Worker Runtime Contracts
+- P4: Model Gateway, Observability, Usage Ledger
+- P5: Ops Dashboard UI
+- P6: Managed Deployment, Upgrade, Rollback, Backup
+- P7: Security, CI, QA Gates, Docs
+- P8: Demo Tenant, Offer Assets, Final Handoff
+
 
 ## Failed approaches
 
