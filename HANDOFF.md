@@ -88,10 +88,34 @@ Extend Mission OS from v0.5 (deployment handoff) to v0.6 (managed agent runtime 
 - `db/migrations/0003_v06_core_platform.sql` — Postgres tables for events, approvals, artifacts, and agents
 - `missionctl/missionctl.mjs` integration — Pack commands generate/publish events, register artifacts, and generate dashboard state
 
+### Phase 2: DB/Auth/RBAC/Tenant Isolation ✅
+- `packages/core/src/auth.js` — users, sessions, invites, operator keys
+- `packages/core/src/rbac.js` — ROLES, PERMISSIONS, can(), assertTenantAccess()
+- Full test suite passing
+
+### Phase 3: Operator API + Worker Runtime Contracts ✅
+- `services/mission-api/src/operator/auth-middleware.js` — Bearer key auth + permission middleware
+- `services/mission-api/src/operator/tenant-context.js` — Tenant-scoped context loader
+- `services/mission-api/src/operator/response.js` — Standardized JSON response helpers
+- `services/mission-api/src/operator/dashboard-state.js` — GET /api/operator/dashboard-state
+- `services/mission-api/src/operator/events.js` — GET /api/operator/events
+- `services/mission-api/src/operator/artifacts.js` — GET /api/operator/artifacts[/:id]
+- `services/mission-api/src/operator/managed-agents.js` — Full managed agent routes (list, get, provision, pause, resume, health)
+- `services/mission-api/src/operator/runs.js` — POST/GET /api/operator/runs[/:id] with policy-first blocking
+- `services/mission-api/src/operator/approvals.js` — POST /api/operator/approvals/:id/approve|reject
+- `services/mission-api/src/operator/index.js` — Express Router mounting all operator routes
+- `packages/core/src/worker-contracts.js` — 4 Hermes contract factories (connector, provisioner, health, dispatcher) — dry-run only
+- `packages/core/package.json` — Added 8 new package exports (auth, events, artifacts, managed-agents, dashboard-state, approval-lifecycle, policy, worker-contracts)
+- `services/mission-api/server.js` — Mounted operator router at /api/operator
+- `missionctl/missionctl.mjs` — Extended bundle smoke with 9 Phase 3 checks (all pass)
+- `packages/core/tests/worker-contracts.test.js` — 12 worker contract tests (all pass)
+- `services/mission-api/tests/operator-api.test.js` — Operator API test suite (all pass)
+- `docs/OPERATOR-API.md` — Route list, auth flow, RBAC map, request/response examples
+- `docs/WORKER-RUNTIME-CONTRACTS.md` — Contract design, policy rules, dispatch examples
+- Total: 82 tests pass, build passes, bundle smoke 25/25 ok
+
 ## Not yet done
 
-- P2: DB, Auth, RBAC, Tenant Isolation (Postgres control plane + isolation tests)
-- P3: Operator API and Worker Runtime Contracts
 - P4: Model Gateway, Observability, Usage Ledger
 - P5: Ops Dashboard UI
 - P6: Managed Deployment, Upgrade, Rollback, Backup

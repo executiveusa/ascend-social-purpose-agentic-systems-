@@ -16,6 +16,14 @@
     "./bridge": "./src/bridge.js",
     "./outbox": "./src/outbox.js",
     "./rbac": "./src/rbac.js",
-    "./idempotency": "./src/idempotency.js"
+    "./idempotency": "./src/idempotency.js",
+    "./auth": "./src/auth.js",
+    "./events": "./src/events.js",
+    "./artifacts": "./src/artifacts.js",
+    "./managed-agents": "./src/managed-agents.js",
+    "./dashboard-state": "./src/dashboard-state.js",
+    "./approval-lifecycle": "./src/approval-lifecycle.js",
+    "./policy": "./src/policy.js",
+    "./worker-contracts": "./src/worker-contracts.js"
   }
 }

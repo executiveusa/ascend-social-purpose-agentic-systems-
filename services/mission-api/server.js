@@ -4,6 +4,7 @@ import cors from 'cors';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
+import operatorRouter from './src/operator/index.js';
 import { rankedOpportunities, buildOpportunityChecklist } from '@asc3nd/core/opportunities';
 import { classifyAction, redactSensitive } from '@asc3nd/core/safety';
 import { routeModel } from '@asc3nd/core/model-router';
@@ -415,6 +416,9 @@ app.post('/api/outcomes', requireAuth, (req, res) => {
 });
 
 app.get('/api/audit', requireAuth, (req, res) => res.json(readJson(auditPath(req.user.tenantId), [])));
+
+// Phase 3: Operator API
+app.use('/api/operator', operatorRouter);
 
 app.use((err, _req, res, _next) => {
   console.error(err);
