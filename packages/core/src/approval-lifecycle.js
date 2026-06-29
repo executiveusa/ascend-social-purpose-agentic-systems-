@@ -3,6 +3,8 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import { emitEvent } from './events.js';
 import { evaluateActionPolicy, APPROVAL_CLASSES } from './policy.js';
+import { can } from './rbac.js';
+import { createRepositories } from '../../db/src/index.js';
 
 const getDataDir = () => process.env.DATA_DIR || path.resolve(process.cwd(), 'mission-data');
 
@@ -24,6 +26,23 @@ const VALID_TRANSITIONS = {
   [APPROVAL_STATES.VERIFIED]: [APPROVAL_STATES.LOGGED],
   [APPROVAL_STATES.REJECTED]: []
 };
+
+function resolveActorUser(actor, tenantId) {
+  if (typeof actor === 'object' && actor !== null) {
+    return actor;
+  }
+  if (typeof actor === 'string') {
+    if (actor === 'system') {
+      return { role: 'owner', tenantId };
+    }
+    const repos = createRepositories();
+    const users = repos.users ? repos.users.list(tenantId) : [];
+    const user = users.find(u => u.id === actor || u.email === actor);
+    if (user) return user;
+    return { role: actor, tenantId };
+  }
+  return null;
+}
 
 export function requestApproval({ tenantId, actionType, actionPayload, requester }) {
   if (!tenantId) throw new Error('tenantId is required');
@@ -67,14 +86,25 @@ export function updateApprovalStatus({ tenantId, approvalId, nextStatus, actor, 
     throw new Error(`Invalid state transition from ${currentStatus} to ${nextStatus}`);
   }
 
-  if (approval.approvalClass === APPROVAL_CLASSES.RED && nextStatus === APPROVAL_STATES.APPROVED) {
-    throw new Error('Restricted approval class RED cannot be automatically approved.');
+  // Connect policy to RBAC for Approved transitions
+  if (nextStatus === APPROVAL_STATES.APPROVED) {
+    const user = resolveActorUser(actor, tenantId);
+    if (approval.approvalClass === APPROVAL_CLASSES.RED) {
+      if (!user || !can(user, 'approvals.approve.red')) {
+        throw new Error('Restricted approval class RED cannot be automatically approved. Restricted approval class RED requires red approval permission.');
+      }
+    }
+    if (approval.approvalClass === APPROVAL_CLASSES.ORANGE) {
+      if (!user || !can(user, 'approvals.approve.orange')) {
+        throw new Error('Restricted approval class ORANGE requires orange approval permission.');
+      }
+    }
   }
 
   approval.status = nextStatus;
   approval.updatedAt = new Date().toISOString();
   if (nextStatus === APPROVAL_STATES.APPROVED) {
-    approval.approver = actor;
+    approval.approver = typeof actor === 'object' ? (actor.id || actor.email) : actor;
   }
   if (comments) {
     approval.comments = comments;
@@ -89,7 +119,7 @@ export function updateApprovalStatus({ tenantId, approvalId, nextStatus, actor, 
     emitEvent({
       tenantId,
       type: eventType,
-      actor: actor || 'system',
+      actor: typeof actor === 'object' ? (actor.id || actor.email) : (actor || 'system'),
       subject: approval.id,
       payload: { status: nextStatus, comments }
     });
