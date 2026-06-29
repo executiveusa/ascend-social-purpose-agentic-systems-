@@ -4,7 +4,7 @@
 # Mission OS connection (Hermes calls Mission OS API for context/approvals)
 MISSION_OS_API_URL=http://mission-api:4000
 MISSION_OS_TENANT=demo-pnw
-MISSION_OS_OPERATOR_KEY=740a83a991df61e5d42d444db3e3dbfcf8852b27f9cb3fae
+MISSION_OS_OPERATOR_KEY=452a6af303955f5c3af7d289d82821a5e78733bcd1a66658
 
 # LiteLLM model gateway (Hermes routes all model calls through LiteLLM)
 LITELLM_BASE_URL=http://litellm:4000

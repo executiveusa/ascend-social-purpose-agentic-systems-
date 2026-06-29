@@ -62,4 +62,39 @@ describe('repository layer', () => {
     expect(() => assertProductionStorage()).not.toThrow();
     delete process.env.NODE_ENV;
   });
+
+  it('manages users, memberships, invites, sessions, and operator keys', () => {
+    const repos = createRepositories();
+    const t = 'demo-tenant';
+
+    // Users
+    repos.users.save(t, [{ id: 'u1', tenantId: t, email: 'u1@test.com', role: 'operator', createdAt: new Date().toISOString() }]);
+    const users = repos.users.list(t);
+    expect(users).toHaveLength(1);
+    expect(users[0].email).toBe('u1@test.com');
+
+    repos.users.add(t, { id: 'u2', tenantId: t, email: 'u2@test.com', role: 'readonly', createdAt: new Date().toISOString() });
+    expect(repos.users.list(t)).toHaveLength(2);
+
+    // Memberships
+    repos.memberships.save(t, [{ id: 'm1', tenantId: t, userId: 'u1', role: 'operator', createdAt: new Date().toISOString() }]);
+    expect(repos.memberships.list(t)).toHaveLength(1);
+
+    // Invites
+    repos.invites.save(t, [{ id: 'i1', tenantId: t, email: 'i1@test.com', role: 'grants', tokenHash: 'h1', invitedBy: 'u1', expiresAt: new Date().toISOString(), createdAt: new Date().toISOString() }]);
+    expect(repos.invites.list(t)).toHaveLength(1);
+    expect(repos.invites.findByHash(t, 'h1')).not.toBeNull();
+    repos.invites.remove(t, 'i1');
+    expect(repos.invites.list(t)).toHaveLength(0);
+
+    // Sessions
+    repos.sessions.save(t, [{ id: 's1', tenantId: t, userId: 'u1', sessionTokenHash: 'sh1', expiresAt: new Date().toISOString(), createdAt: new Date().toISOString() }]);
+    expect(repos.sessions.list(t)).toHaveLength(1);
+    expect(repos.sessions.findByHash(t, 'sh1')).not.toBeNull();
+
+    // Operator Keys
+    repos.operatorKeys.save(t, [{ id: 'ok1', tenantId: t, label: 'test-key', scopes: ['operator'], keyHash: 'kh1', createdBy: 'u1', createdAt: new Date().toISOString() }]);
+    expect(repos.operatorKeys.list(t)).toHaveLength(1);
+    expect(repos.operatorKeys.findByHash(t, 'kh1')).not.toBeNull();
+  });
 });

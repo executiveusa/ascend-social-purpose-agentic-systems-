@@ -9,6 +9,7 @@ import { emitEvent } from '../packages/core/src/events.js';
 import { registerArtifact } from '../packages/core/src/artifacts.js';
 import { provisionManagedAgent, updateAgentHealth } from '../packages/core/src/managed-agents.js';
 import { generateDashboardState } from '../packages/core/src/dashboard-state.js';
+import { createOperatorKey, validateOperatorKey } from '../packages/core/src/auth.js';
 
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -39,6 +40,7 @@ async function main() {
   if (group === 'litellm') return litellmCommand(cmd, value || getFlag('--slug') || 'demo-pnw');
   if (group === 'langfuse') return langfuseCommand(cmd, value || getFlag('--slug') || 'demo-pnw');
   if (group === 'openwebui') return openwebuiCommand(cmd, value || getFlag('--slug') || 'demo-pnw');
+  if (group === 'operator-key') return operatorKeyCommand(cmd, value || getFlag('--slug') || 'demo-pnw');
   throw new Error(`Unknown command: ${args.join(' ')}`);
 }
 
@@ -709,6 +711,54 @@ function openwebuiSync(tenantId) {
   fs.copyFileSync(path.join(TEMPLATES, 'openwebui', 'starter-agents.json'), path.join(outDir, 'starter-agents.json'));
   appendLog({ event: 'openwebui.synced', tenantId });
   console.log(JSON.stringify({ ok: true, tenantId, configDir: outDir, starterAgents: 6, message: 'Open WebUI config generated. Connects to LiteLLM only.' }, null, 2));
+}
+
+function operatorKeyCommand(cmd, tenantId) {
+  if (cmd === 'create') {
+    const label = getFlag('--label') || 'local-dev';
+    const scope = getFlag('--scope') || 'operator';
+    const scopes = scope.split(',').map(s => s.trim());
+    const { operatorKey, rawKey } = createOperatorKey({
+      tenantId,
+      label,
+      scopes,
+      createdBy: 'cli'
+    });
+    console.log(JSON.stringify({
+      ok: true,
+      tenantId,
+      label,
+      scopes,
+      keyId: operatorKey.id,
+      rawKey,
+      note: 'Save this key. It will not be shown again.'
+    }, null, 2));
+  } else if (cmd === 'validate') {
+    const key = getFlag('--key') || args[3] || '';
+    try {
+      const opKey = validateOperatorKey({
+        key,
+        tenantId
+      });
+      console.log(JSON.stringify({
+        ok: true,
+        tenantId,
+        valid: true,
+        keyId: opKey.id,
+        label: opKey.label,
+        scopes: opKey.scopes
+      }, null, 2));
+    } catch (err) {
+      console.log(JSON.stringify({
+        ok: false,
+        tenantId,
+        valid: false,
+        error: err.message
+      }, null, 2));
+    }
+  } else {
+    throw new Error(`Unknown operator-key command: ${cmd}`);
+  }
 }
 
 function copyHermesTemplates(tenantId, outDir) {
