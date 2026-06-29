@@ -4,7 +4,7 @@
 
 services:
   hermes:
-    image: nousresearch/hermes-agent:latest
+    image: ${HERMES_IMAGE:-nousresearch/hermes-agent:latest}
     restart: unless-stopped
     env_file:
       - hermes/env

@@ -68,7 +68,7 @@ services:
       retries: 3
 
   hermes:
-    image: nousresearch/hermes-agent:latest
+    image: ${HERMES_IMAGE:-nousresearch/hermes-agent:latest}
     restart: unless-stopped
     env_file: hermes/env
     ports:
