@@ -13,7 +13,14 @@ const links = [
   ['System Health', '/ops/settings', 'Tool connections'],
   ['ICM Files', '/ops/icm', 'Readable agent folders'],
   ['Flywheel', '/ops/flywheel', 'Repeatable upgrades'],
-  ['Setup', '/ops/onboarding', 'Organization profile']
+  ['Setup', '/ops/onboarding', 'Organization profile'],
+  ['Agent Room', '/ops/agents', 'Managed agents (dry-run)'],
+  ['Artifacts', '/ops/artifacts', 'Generated outputs'],
+  ['Event Journal', '/ops/events', 'Mission OS activity log'],
+  ['Model Budgets', '/ops/budgets', 'Spend and gateway status'],
+  ['Health', '/ops/health', 'Mission OS operator health'],
+  ['Deployments', '/ops/deployments', 'Release and bundle state'],
+  ['Open WebUI', '/ops/openwebui', 'Workspace launcher (dry-run)']
 ];
 
 export function OpsShell({ children, title, subtitle }) {

@@ -55,6 +55,22 @@ Every work session logs:
 | Tests passed | 61/61 (all tests pass) |
 | Decisions | D6 (Core platform state layer implemented, file-backed fallbacks + database migrations ready) |
 
+### Session 3 — 2026-06-30 (Phase 5: Ops Dashboard UI)
+
+| Field | Value |
+|---|---|
+| Session ID | 2026-06-30-003 |
+| Date | 2026-06-30T18:00:00Z |
+| Agent/Builder | Claude Code |
+| Model | claude-sonnet-4-6 |
+| MCPs used | github |
+| Files created | `apps/site/lib/ops-tenant.js`, `apps/site/lib/opsApi.js`, `apps/site/app/api/ops/{dashboard-state,events,artifacts,managed-agents,managed-agents/[id],budgets,model-usage-summary,traces}/route.js`, `apps/site/components/MissionOsOverview.jsx`, `apps/site/app/ops/{agents,agents/[id],artifacts,events,budgets,health,deployments,openwebui}/page.jsx`, `apps/site/tests/{ops-routes-exist,ops-api-data,ops-no-operator-keys-in-client}.test.js`, `docs/OPS-DASHBOARD.md` |
+| Files modified | `apps/site/app/ops/page.jsx`, `apps/site/components/OpsShell.jsx`, `vitest.config.js`, `missionctl/missionctl.mjs`, `HANDOFF.md`, `openspec/changes/mission-os-v0-6-managed-hermes-bundle/tasks.md` |
+| Tests written | 53 new tests across 3 files |
+| Tests passed | 189/189 (full suite) |
+| Beads written | 0 |
+| Decisions | Bypass both legacy session-JWT auth and Operator API key auth via a same-origin server-side `/api/ops/*` proxy layer reading `@asc3nd/core/*` directly, since the two existing auth schemes do not interoperate and exposing an operator key to client JS is explicitly forbidden; extend `/ops` additively rather than replace the pre-existing Today cockpit |
+
 ## Rules
 
 1. Every session must be logged here before ending.

@@ -66,3 +66,4 @@ Mission OS supports two repository backends:
 - Raw session tokens and operator keys must never be stored in plaintext.
 - Generated `.env` and `.env.managed` files must never be committed to git.
 - Mock/test credentials are used for dry-runs; no live provider master keys may be configured.
+- Operator API keys must never reach client-side (browser-bundled) JavaScript. The Phase 5 ops dashboard (`apps/site/app/ops/*`) enforces this by reading tenant state through same-origin server-side route handlers (`apps/site/app/api/ops/*`) that import core modules directly, instead of having the browser call the Operator API with a key — see `docs/OPS-DASHBOARD.md`. Enforced by `apps/site/tests/ops-no-operator-keys-in-client.test.js` and the `missionctl bundle smoke` "no operator key literal in ops client code" check.

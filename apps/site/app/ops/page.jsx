@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react';
 import { OpsShell } from '../../components/OpsShell';
 import { StatusBadge } from '../../components/StatusBadge';
 import { api } from '../../lib/api';
+import { MissionOsOverview } from '../../components/MissionOsOverview';
 
 export default function OpsDashboard() {
   const [data, setData] = useState(null);
@@ -47,6 +48,8 @@ export default function OpsDashboard() {
           <div className="card"><h3>Outcome progress</h3><div className="stack">{data.lanes.map((lane) => <div key={lane.id}><div className="preview-row clean"><strong>{lane.label}</strong><span>{lane.value} / {lane.target}</span></div><div className="progress"><span style={{width: `${lane.progress}%`}} /></div></div>)}</div></div>
         </section>
       </>}
+
+      <MissionOsOverview />
     </OpsShell>
   );
 }
