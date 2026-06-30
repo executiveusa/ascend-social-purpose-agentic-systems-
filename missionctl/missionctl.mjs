@@ -536,6 +536,27 @@ function bundleStatus(tenantId) {
   console.log(JSON.stringify({ ok: true, tenantId, bundleExists: exists, manifest }, null, 2));
 }
 
+function hasOperatorKeyLiteral(siteRoot) {
+  const forbidden = [/ok_[a-zA-Z0-9-]+_[0-9a-f]{16,}/, /OPERATOR_KEY/, /operator-key/i, /validateOperatorKey/];
+  const dirs = ['app', 'components', 'lib'].map((d) => path.join(siteRoot, d)).filter((d) => fs.existsSync(d));
+  function scan(dir) {
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+      if (entry.name === 'node_modules' || entry.name === '.next' || entry.name === 'api') continue;
+      const full = path.join(dir, entry.name);
+      if (entry.isDirectory()) {
+        if (scan(full)) return true;
+      } else if (/\.(jsx?|tsx?)$/.test(entry.name)) {
+        const content = fs.readFileSync(full, 'utf8');
+        if (content.startsWith("'use client'") || content.startsWith('"use client"') || full.endsWith(path.join('lib', 'opsApi.js'))) {
+          if (forbidden.some((p) => p.test(content))) return true;
+        }
+      }
+    }
+    return false;
+  }
+  return dirs.some((d) => scan(d));
+}
+
 function bundleSmoke(tenantId) {
   const outDir = path.join(BUNDLES, tenantId, 'managed');
   if (!fs.existsSync(outDir)) throw new Error('No bundle found for ' + tenantId + '. Run: missionctl bundle up ' + tenantId + ' --dry-run');
@@ -576,7 +597,17 @@ function bundleSmoke(tenantId) {
     ['budgets API helper', fs.existsSync(path.join(ROOT, 'services', 'mission-api', 'src', 'operator', 'budgets.js'))],
     ['model-usage API helper', fs.existsSync(path.join(ROOT, 'services', 'mission-api', 'src', 'operator', 'model-usage.js'))],
     ['traces API helper', fs.existsSync(path.join(ROOT, 'services', 'mission-api', 'src', 'operator', 'traces.js'))],
-    ['db migration 0005', fs.existsSync(path.join(ROOT, 'db', 'migrations', '0005_v06_model_gateway_observability.sql'))]
+    ['db migration 0005', fs.existsSync(path.join(ROOT, 'db', 'migrations', '0005_v06_model_gateway_observability.sql'))],
+    // Phase 5: Ops Dashboard UI
+    ['ops route: /ops/agents', fs.existsSync(path.join(ROOT, 'apps', 'site', 'app', 'ops', 'agents', 'page.jsx'))],
+    ['ops route: /ops/agents/[id]', fs.existsSync(path.join(ROOT, 'apps', 'site', 'app', 'ops', 'agents', '[id]', 'page.jsx'))],
+    ['ops route: /ops/artifacts', fs.existsSync(path.join(ROOT, 'apps', 'site', 'app', 'ops', 'artifacts', 'page.jsx'))],
+    ['ops route: /ops/events', fs.existsSync(path.join(ROOT, 'apps', 'site', 'app', 'ops', 'events', 'page.jsx'))],
+    ['ops route: /ops/budgets', fs.existsSync(path.join(ROOT, 'apps', 'site', 'app', 'ops', 'budgets', 'page.jsx'))],
+    ['ops route: /ops/health', fs.existsSync(path.join(ROOT, 'apps', 'site', 'app', 'ops', 'health', 'page.jsx'))],
+    ['ops route: /ops/deployments', fs.existsSync(path.join(ROOT, 'apps', 'site', 'app', 'ops', 'deployments', 'page.jsx'))],
+    ['ops route: /ops/openwebui', fs.existsSync(path.join(ROOT, 'apps', 'site', 'app', 'ops', 'openwebui', 'page.jsx'))],
+    ['no operator key literal in ops client code', !hasOperatorKeyLiteral(path.join(ROOT, 'apps', 'site'))]
   ];
   const failed = checks.filter(([, ok]) => !ok);
   console.table(checks.map(([name, ok]) => ({ check: name, status: ok ? 'ok' : 'missing' })));

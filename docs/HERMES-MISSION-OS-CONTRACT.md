@@ -60,3 +60,7 @@ missionctl hermes health <slug>
 
 In dry-run: checks if Hermes config exists.
 In production: would curl `http://hermes:8765/health`.
+
+## Ops dashboard visibility
+
+The Phase 5 ops dashboard (`/ops/agents`, `/ops/agents/[id]`, `/ops/health` in `apps/site`) displays the `managed_agents` health records this contract produces, read directly from `mission-data/<tenant>/managed-agents.json`. The dashboard never calls Hermes directly — it only reads the state Mission OS already owns, consistent with "Does NOT write directly to Mission OS Postgres" / "Mission OS DB is source of truth" above.

@@ -4,10 +4,10 @@
 
 ## Current state
 
-**Version:** v0.6 (Managed Hermes Bundle) — Phase 1 Core Platform State Layer complete
-**Date:** 2026-06-29
+**Version:** v0.6 (Managed Hermes Bundle) — Phase 5 Ops Dashboard UI complete
+**Date:** 2026-06-30
 **Repo:** `https://github.com/executiveusa/ascend-social-purpose-agentic-systems-.git`
-**Branch:** `phase/core-platform-state-layer`
+**Branch:** `phase/ops-dashboard-ui`
 
 ## Goal
 
@@ -133,9 +133,21 @@ Extend Mission OS from v0.5 (deployment handoff) to v0.6 (managed agent runtime 
 - `docs/OPERATOR-API.md` — updated with 5 new routes and Phase 4 known limitations
 - Total: 136 tests pass (109 previously-counted + 27 new — the prior "82 tests" count never actually included `operator-api.test.js`), build passes, bundle smoke 35/35 ok
 
+### Phase 5: Ops Dashboard UI ✅
+- `apps/site/lib/ops-tenant.js` — `getOpsTenantId()`, defaults to `process.env.OPS_TENANT_ID || 'demo-pnw'`
+- `apps/site/lib/opsApi.js` — browser-side same-origin fetch helper for `/api/ops/*`, no operator key ever reaches client JS
+- `apps/site/app/api/ops/{dashboard-state,events,artifacts,managed-agents,managed-agents/[id],budgets,model-usage-summary,traces}/route.js` — 8 server-side Route Handlers reading `@asc3nd/core/*` directly against the shared `mission-data/<tenantId>` files, bypassing both the legacy session-JWT auth and the Operator API key auth
+- `apps/site/components/MissionOsOverview.jsx` — Mission OS operator overview widgets, rendered additively below the existing `/ops` Today cockpit
+- `apps/site/app/ops/{agents,agents/[id],artifacts,events,budgets,health,deployments,openwebui}/page.jsx` — 8 new internal ops pages
+- `apps/site/components/OpsShell.jsx` — nav extended with 7 new links (Agent Room, Artifacts, Event Journal, Model Budgets, Health, Deployments, Open WebUI)
+- `apps/site/tests/{ops-routes-exist,ops-api-data,ops-no-operator-keys-in-client}.test.js` — 53 new tests (route/page existence, route-handler data correctness incl. empty states and 404s, static no-operator-key-in-client-code scan)
+- `vitest.config.js` — added `apps/**/tests/**/*.test.js` to test include globs (previously apps/site had no test coverage at all)
+- `missionctl/missionctl.mjs` — `hasOperatorKeyLiteral()` helper + bundle smoke extended with 9 Phase 5 checks (44/44 total)
+- `docs/OPS-DASHBOARD.md` — new: route map, data-source strategy (and why the legacy/Operator-API dual-auth split required a local proxy layer), security rule, live/dry-run/placeholder breakdown
+- No new UI framework introduced; no public marketing routes touched; no live Hermes/LiteLLM/Langfuse/Open WebUI calls; no release/rollback/backup commands implemented
+
 ## Not yet done
 
-- P5: Ops Dashboard UI
 - P6: Managed Deployment, Upgrade, Rollback, Backup
 - P7: Security, CI, QA Gates, Docs
 - P8: Demo Tenant, Offer Assets, Final Handoff

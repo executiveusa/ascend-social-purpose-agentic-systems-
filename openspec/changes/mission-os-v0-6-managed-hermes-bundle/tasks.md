@@ -117,11 +117,11 @@
 - **Acceptance:** Tests pass. Each tenant gets isolated workspace.
 
 ### P2-4: Deeper dashboard UI
-- [ ] Add real-time event feed to ops cockpit
-- [ ] Add artifact browser
-- [ ] Add agent status panel
-- [ ] Add model usage chart
-- **Acceptance:** UI renders dashboard-state data correctly.
+- [x] Add real-time event feed to ops cockpit (`/ops/events`, polled on load; not push/streaming)
+- [x] Add artifact browser (`/ops/artifacts`)
+- [x] Add agent status panel (`/ops/agents`, `/ops/agents/[id]`, `/ops/health`)
+- [x] Add model usage chart (`/ops/budgets` — spend bar + per-surface table; not a chart library, matches existing `.progress` UI convention)
+- **Acceptance:** UI renders dashboard-state data correctly. ✅ Built in Phase 5 — see `docs/OPS-DASHBOARD.md`. Note: built as same-origin `/api/ops/*` Route Handlers reading core modules directly, not as a browser client of the Operator API, because the Operator API's key auth and the browser's session-JWT auth are two non-interoperable schemes (see `docs/OPS-DASHBOARD.md` "Data source strategy"). `/ops/deployments` and `/ops/openwebui` remain placeholders per explicit Phase 5 guardrails (no release/rollback/backup, no live Open WebUI).
 
 ## P3 — Production Hardening
 
