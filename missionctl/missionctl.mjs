@@ -10,6 +10,9 @@ import { registerArtifact } from '../packages/core/src/artifacts.js';
 import { provisionManagedAgent, updateAgentHealth } from '../packages/core/src/managed-agents.js';
 import { generateDashboardState } from '../packages/core/src/dashboard-state.js';
 import { createOperatorKey, validateOperatorKey } from '../packages/core/src/auth.js';
+import { getModelBudget, setModelBudget, evaluateBudgetStatus } from '../packages/core/src/model-budgets.js';
+import { summarizeMonthlyUsage, summarizeUsageBySurface } from '../packages/core/src/model-usage-ledger.js';
+import { getTraceLinks } from '../packages/core/src/trace-links.js';
 
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -41,11 +44,13 @@ async function main() {
   if (group === 'langfuse') return langfuseCommand(cmd, value || getFlag('--slug') || 'demo-pnw');
   if (group === 'openwebui') return openwebuiCommand(cmd, value || getFlag('--slug') || 'demo-pnw');
   if (group === 'operator-key') return operatorKeyCommand(cmd, value || getFlag('--slug') || 'demo-pnw');
+  // v0.6 Phase 4: model gateway, observability, usage ledger
+  if (group === 'model') return modelCommand(cmd, value, args[3] || getFlag('--slug') || 'demo-pnw');
   throw new Error(`Unknown command: ${args.join(' ')}`);
 }
 
 function help() {
-  console.log(`Mission OS control plane v0.6\n\nCommands:\n\n  -- v0.5 (existing) --\n  missionctl doctor\n  missionctl tenant create <slug> --org "Org Name" --region "Seattle" --domain "https://client.org"\n  missionctl tenant keys <slug>\n  missionctl frontend scaffold <slug>\n  missionctl hostinger handoff <slug> --domain "client.org" --api-domain "api.client.org" --email "admin@client.org" --vps-ip "1.2.3.4"\n  missionctl smoke <slug>\n  missionctl backup <slug>\n  missionctl restore <backup-json>\n  missionctl icm run <slug> <stage>\n\n  -- v0.6 managed bundle --\n  missionctl bundle up <slug> [--dry-run]\n  missionctl bundle status <slug>\n  missionctl bundle smoke <slug> [--dry-run]\n  missionctl bundle release <slug>\n  missionctl bundle down <slug>\n\n  missionctl pack generate <slug>\n  missionctl pack validate <slug>\n  missionctl pack publish <slug>\n\n  missionctl hermes provision <slug>\n  missionctl hermes health <slug>\n\n  missionctl litellm sync <slug>\n  missionctl langfuse sync <slug>\n  missionctl openwebui sync <slug>\n`);
+  console.log(`Mission OS control plane v0.6\n\nCommands:\n\n  -- v0.5 (existing) --\n  missionctl doctor\n  missionctl tenant create <slug> --org "Org Name" --region "Seattle" --domain "https://client.org"\n  missionctl tenant keys <slug>\n  missionctl frontend scaffold <slug>\n  missionctl hostinger handoff <slug> --domain "client.org" --api-domain "api.client.org" --email "admin@client.org" --vps-ip "1.2.3.4"\n  missionctl smoke <slug>\n  missionctl backup <slug>\n  missionctl restore <backup-json>\n  missionctl icm run <slug> <stage>\n\n  -- v0.6 managed bundle --\n  missionctl bundle up <slug> [--dry-run]\n  missionctl bundle status <slug>\n  missionctl bundle smoke <slug> [--dry-run]\n  missionctl bundle release <slug>\n  missionctl bundle down <slug>\n\n  missionctl pack generate <slug>\n  missionctl pack validate <slug>\n  missionctl pack publish <slug>\n\n  missionctl hermes provision <slug>\n  missionctl hermes health <slug>\n\n  missionctl litellm sync <slug>\n  missionctl langfuse sync <slug>\n  missionctl openwebui sync <slug>\n\n  -- v0.6 model gateway / observability (Phase 4) --\n  missionctl model budget show <slug>\n  missionctl model budget set <slug> --amount 100 [--warning-pct 0.8] [--hard-block-pct 1.0]\n  missionctl model usage summary <slug> [--month 2026-06]\n  missionctl model traces list <slug> [--surface comms]\n`);
 }
 
 function icmRun(slugInput, stage) {
@@ -560,7 +565,18 @@ function bundleSmoke(tenantId) {
     ['runs API helper', fs.existsSync(path.join(ROOT, 'services', 'mission-api', 'src', 'operator', 'runs.js'))],
     ['approvals API helper', fs.existsSync(path.join(ROOT, 'services', 'mission-api', 'src', 'operator', 'approvals.js'))],
     ['worker contracts', fs.existsSync(path.join(ROOT, 'packages', 'core', 'src', 'worker-contracts.js'))],
-    ['server route registration', fs.readFileSync(path.join(ROOT, 'services', 'mission-api', 'server.js'), 'utf8').includes('operatorRouter')]
+    ['server route registration', fs.readFileSync(path.join(ROOT, 'services', 'mission-api', 'server.js'), 'utf8').includes('operatorRouter')],
+    // Phase 4: Model Gateway, Observability, Usage Ledger
+    ['model-budgets module', fs.existsSync(path.join(ROOT, 'packages', 'core', 'src', 'model-budgets.js'))],
+    ['model-usage-ledger module', fs.existsSync(path.join(ROOT, 'packages', 'core', 'src', 'model-usage-ledger.js'))],
+    ['trace-links module', fs.existsSync(path.join(ROOT, 'packages', 'core', 'src', 'trace-links.js'))],
+    ['langfuse-metadata module', fs.existsSync(path.join(ROOT, 'packages', 'core', 'src', 'langfuse-metadata.js'))],
+    ['litellm-config module', fs.existsSync(path.join(ROOT, 'packages', 'core', 'src', 'litellm-config.js'))],
+    ['openwebui-bootstrap module', fs.existsSync(path.join(ROOT, 'packages', 'core', 'src', 'openwebui-bootstrap.js'))],
+    ['budgets API helper', fs.existsSync(path.join(ROOT, 'services', 'mission-api', 'src', 'operator', 'budgets.js'))],
+    ['model-usage API helper', fs.existsSync(path.join(ROOT, 'services', 'mission-api', 'src', 'operator', 'model-usage.js'))],
+    ['traces API helper', fs.existsSync(path.join(ROOT, 'services', 'mission-api', 'src', 'operator', 'traces.js'))],
+    ['db migration 0005', fs.existsSync(path.join(ROOT, 'db', 'migrations', '0005_v06_model_gateway_observability.sql'))]
   ];
   const failed = checks.filter(([, ok]) => !ok);
   console.table(checks.map(([name, ok]) => ({ check: name, status: ok ? 'ok' : 'missing' })));
@@ -768,6 +784,32 @@ function operatorKeyCommand(cmd, tenantId) {
     }
   } else {
     throw new Error(`Unknown operator-key command: ${cmd}`);
+  }
+}
+
+function modelCommand(cmd, sub, tenantId) {
+  if (cmd === 'budget' && sub === 'show') {
+    const budget = getModelBudget(tenantId);
+    const monthly = summarizeMonthlyUsage({ tenantId });
+    const status = evaluateBudgetStatus({ tenantId, monthToDateSpendUsd: monthly.totalCostUsd || 0 });
+    console.log(JSON.stringify({ ok: true, tenantId, budget, monthToDateSpendUsd: monthly.totalCostUsd || 0, status }, null, 2));
+  } else if (cmd === 'budget' && sub === 'set') {
+    const monthlyBudgetUsd = Number(getFlag('--amount'));
+    const warningThresholdPct = getFlag('--warning-pct') ? Number(getFlag('--warning-pct')) : undefined;
+    const hardBlockThresholdPct = getFlag('--hard-block-pct') ? Number(getFlag('--hard-block-pct')) : undefined;
+    const budget = setModelBudget({ tenantId, monthlyBudgetUsd, warningThresholdPct, hardBlockThresholdPct, actor: 'cli' });
+    console.log(JSON.stringify({ ok: true, tenantId, budget }, null, 2));
+  } else if (cmd === 'usage' && sub === 'summary') {
+    const month = getFlag('--month');
+    const monthly = summarizeMonthlyUsage({ tenantId, month: month || undefined });
+    const bySurface = summarizeUsageBySurface({ tenantId, month: month || undefined });
+    console.log(JSON.stringify({ ok: true, tenantId, monthly, bySurface: bySurface.surfaces }, null, 2));
+  } else if (cmd === 'traces' && sub === 'list') {
+    const surface = getFlag('--surface');
+    const traces = getTraceLinks({ tenantId, surface: surface || undefined });
+    console.log(JSON.stringify({ ok: true, tenantId, traces }, null, 2));
+  } else {
+    throw new Error(`Unknown model command: ${cmd} ${sub || ''}`.trim());
   }
 }
 

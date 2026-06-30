@@ -1,15 +1,15 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { createRepositories, clearRepositoryCache } from '../../packages/db/src/index.js';
-import { createOperatorKey, validateOperatorKey } from '../../packages/core/src/auth.js';
-import { emitEvent } from '../../packages/core/src/events.js';
-import { getArtifacts, registerArtifact } from '../../packages/core/src/artifacts.js';
-import { getManagedAgents, provisionManagedAgent } from '../../packages/core/src/managed-agents.js';
-import { generateDashboardState } from '../../packages/core/src/dashboard-state.js';
-import { requestApproval, updateApprovalStatus, APPROVAL_STATES } from '../../packages/core/src/approval-lifecycle.js';
-import { createHermesRunDispatcher } from '../../packages/core/src/worker-contracts.js';
+import { createRepositories, clearRepositoryCache } from '../../../packages/db/src/index.js';
+import { createOperatorKey, validateOperatorKey } from '../../../packages/core/src/auth.js';
+import { emitEvent } from '../../../packages/core/src/events.js';
+import { getArtifacts, registerArtifact } from '../../../packages/core/src/artifacts.js';
+import { getManagedAgents, provisionManagedAgent } from '../../../packages/core/src/managed-agents.js';
+import { generateDashboardState } from '../../../packages/core/src/dashboard-state.js';
+import { requestApproval, updateApprovalStatus, APPROVAL_STATES } from '../../../packages/core/src/approval-lifecycle.js';
+import { createHermesRunDispatcher } from '../../../packages/core/src/worker-contracts.js';
 import { operatorAuth, requirePermission } from '../src/operator/auth-middleware.js';
 import { operatorSuccess, operatorError } from '../src/operator/response.js';
-import { can } from '../../packages/core/src/rbac.js';
+import { can } from '../../../packages/core/src/rbac.js';
 
 const TENANT = 'test-operator-tenant';
 
@@ -285,6 +285,80 @@ describe('worker dispatcher dry-run and policy-first', () => {
     const result = dispatcher.dispatch({ tenantId: TENANT, risk: 'green', actionType: 'GRANT_SUBMISSION' });
     expect(result.ok).toBe(false);
     expect(result.blocked).toBe(true);
+  });
+});
+
+// --- model gateway / observability / usage ledger ---
+
+describe('budgets handler', () => {
+  it('returns tenant-scoped budget and status', async () => {
+    const { operatorKey } = createOperatorKey({ tenantId: TENANT, label: 'test', scopes: ['operator'], createdBy: 'test' });
+    const { getBudget } = await import('../src/operator/budgets.js');
+    const req = makeReq();
+    req.operator = { ...operatorKey, tenantId: TENANT };
+    const res = makeResMock();
+    getBudget(req, res);
+    expect(res._status).toBe(200);
+    expect(res._body.ok).toBe(true);
+    expect(res._body.tenantId).toBe(TENANT);
+    expect(res._body.budget).toBeDefined();
+    expect(res._body.status).toBe('ok');
+  });
+});
+
+describe('model-usage handler', () => {
+  it('lists usage entries for tenant only', async () => {
+    const { recordModelUsage } = await import('../../../packages/core/src/model-usage-ledger.js');
+    recordModelUsage({ tenantId: TENANT, surface: 'mission-os', model: 'standard', costUsd: 1 });
+    recordModelUsage({ tenantId: 'other-tenant', surface: 'mission-os', model: 'standard', costUsd: 1 });
+    const { operatorKey } = createOperatorKey({ tenantId: TENANT, label: 'test', scopes: ['operator'], createdBy: 'test' });
+    const { listModelUsage } = await import('../src/operator/model-usage.js');
+    const req = makeReq();
+    req.operator = { ...operatorKey, tenantId: TENANT };
+    const res = makeResMock();
+    listModelUsage(req, res);
+    expect(res._status).toBe(200);
+    expect(res._body.entries.every(e => e.tenantId === TENANT)).toBe(true);
+  });
+
+  it('returns monthly and per-surface summary', async () => {
+    const { recordModelUsage } = await import('../../../packages/core/src/model-usage-ledger.js');
+    recordModelUsage({ tenantId: TENANT, surface: 'mission-os', model: 'standard', costUsd: 2 });
+    const { operatorKey } = createOperatorKey({ tenantId: TENANT, label: 'test', scopes: ['operator'], createdBy: 'test' });
+    const { getModelUsageSummary } = await import('../src/operator/model-usage.js');
+    const req = makeReq();
+    req.operator = { ...operatorKey, tenantId: TENANT };
+    const res = makeResMock();
+    getModelUsageSummary(req, res);
+    expect(res._status).toBe(200);
+    expect(res._body.monthly.tenantId).toBe(TENANT);
+    expect(Array.isArray(res._body.bySurface)).toBe(true);
+  });
+});
+
+describe('traces handler', () => {
+  it('lists trace links for tenant only', async () => {
+    const { createTraceLink } = await import('../../../packages/core/src/trace-links.js');
+    createTraceLink({ tenantId: TENANT, surface: 'mission-os', runId: 'run_1' });
+    createTraceLink({ tenantId: 'other-tenant', surface: 'mission-os', runId: 'run_2' });
+    const { operatorKey } = createOperatorKey({ tenantId: TENANT, label: 'test', scopes: ['operator'], createdBy: 'test' });
+    const { listTraces } = await import('../src/operator/traces.js');
+    const req = makeReq();
+    req.operator = { ...operatorKey, tenantId: TENANT };
+    const res = makeResMock();
+    listTraces(req, res);
+    expect(res._status).toBe(200);
+    expect(res._body.traces.every(t => t.tenantId === TENANT)).toBe(true);
+  });
+
+  it('returns 404 for missing trace', async () => {
+    const { operatorKey } = createOperatorKey({ tenantId: TENANT, label: 'test', scopes: ['operator'], createdBy: 'test' });
+    const { getTrace } = await import('../src/operator/traces.js');
+    const req = makeReq({ params: { id: 'trc_missing' } });
+    req.operator = { ...operatorKey, tenantId: TENANT };
+    const res = makeResMock();
+    getTrace(req, res);
+    expect(res._status).toBe(404);
   });
 });
 

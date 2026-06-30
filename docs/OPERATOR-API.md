@@ -39,9 +39,44 @@ Each route requires a specific permission. The operator key's primary scope maps
 | `/api/operator/runs/:id` | GET | `runs.read` |
 | `/api/operator/approvals/:id/approve` | POST | `approvals.review` + class check |
 | `/api/operator/approvals/:id/reject` | POST | `approvals.review` |
+| `/api/operator/budgets` | GET | `budgets.read` |
+| `/api/operator/model-usage` | GET | `budgets.read` |
+| `/api/operator/model-usage/summary` | GET | `budgets.read` |
+| `/api/operator/traces` | GET | `events.read` |
+| `/api/operator/traces/:id` | GET | `events.read` |
 
 Orange approvals additionally require `approvals.approve.orange`.
 Red approvals additionally require `approvals.approve.red` (owner only).
+
+### Phase 4 additions (Model Gateway, Observability, Usage Ledger)
+
+All five new routes are read-only and tenant-scoped via the same `loadTenantContext` flow as every other route — no new cross-tenant surface is introduced. See `docs/MODEL-GATEWAY.md`, `docs/MODEL-USAGE-LEDGER.md`, and `docs/OBSERVABILITY-AND-TRACES.md` for the underlying data model.
+
+#### GET /api/operator/budgets
+
+Returns the tenant's configured monthly budget, month-to-date spend, and warning/hard-block status.
+
+```json
+{
+  "ok": true,
+  "budget": { "tenantId": "demo-pnw", "monthlyBudgetUsd": 50, "warningThresholdPct": 0.8, "hardBlockThresholdPct": 1 },
+  "monthly": { "month": "2026-06", "totalCostUsd": 12.4, "entryCount": 38 },
+  "status": { "status": "ok", "ratio": 0.248 },
+  "tenantId": "demo-pnw"
+}
+```
+
+#### GET /api/operator/model-usage?surface=comms
+
+Returns raw model usage ledger entries (append-only), optionally filtered by surface. Entries never contain raw prompts or completions — only token counts, cost, model id, and a `traceId` link.
+
+#### GET /api/operator/model-usage/summary?month=2026-06
+
+Returns a monthly summary plus a per-surface breakdown.
+
+#### GET /api/operator/traces and GET /api/operator/traces/:id
+
+Returns Langfuse trace links (`traceId` → `langfuseTraceUrl` + tenant/surface/run metadata), not the trace content itself. Optionally filtered by `surface` or `runId`.
 
 ## Request / Response Examples
 
@@ -119,7 +154,8 @@ Common codes: `MISSING_KEY`, `FORBIDDEN`, `NOT_FOUND`, `APPROVAL_REQUIRED`, `POL
 
 ## Known Limitations
 
-- Operator API is in dry-run mode for Phase 3. No live Hermes execution.
+- Operator API is in dry-run mode for Phase 3/4. No live Hermes execution, no live LiteLLM/Langfuse/Open WebUI calls.
 - Orange/red runs are blocked at the API level. Approval workflow is separate.
-- Runs storage uses tenant-local JSON (`operator-runs.json`). Phase 4 will migrate to the DB layer.
+- Runs, budgets, usage ledger, and trace links storage all use tenant-local JSON/JSONL files (`packages/core/src/*.js` + `mission-data/<tenantId>/*.json[l]`). A Postgres migration (`db/migrations/0005_v06_model_gateway_observability.sql`) exists for schema parity but is not wired up yet.
 - No pagination on list endpoints. Phase 5 will add cursor-based pagination.
+- Budget/usage/trace routes are read-only in Phase 4. Write paths (`recordModelUsage`, `setModelBudget`, `createTraceLink`) exist as core functions only and are intended to be called by the (future, real) model gateway integration, not directly by operators.

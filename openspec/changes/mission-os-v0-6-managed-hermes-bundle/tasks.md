@@ -97,6 +97,8 @@
 
 ## P2 — Managed Runtime
 
+> **Note (Architect-assigned "Phase 4 — Model Gateway, Observability, Usage Ledger"):** the config/contract and budget/usage-ledger layer underlying P2-1/P2-2/P2-3 has been built (`packages/core/src/{litellm-config,langfuse-metadata,trace-links,openwebui-bootstrap,model-budgets,model-usage-ledger}.js`, see `docs/MODEL-GATEWAY.md`, `docs/MODEL-USAGE-LEDGER.md`, `docs/OBSERVABILITY-AND-TRACES.md`, `docs/LITELLM-LANGFUSE-OPENWEBUI.md`). Per explicit phase guardrails, none of it calls a live LiteLLM, Langfuse, or Open WebUI instance — the checkboxes below describing live sync/key-injection/usage-pull/bootstrap-against-a-running-service remain unchecked and are left for a future phase.
+
 ### P2-1: LiteLLM sync
 - [ ] Implement `packages/core/src/litellm-sync.js` — model list sync, key injection, usage pull
 - [ ] Add `missionctl litellm sync <tenant>` command
