@@ -30,10 +30,22 @@ export function createRun(req, res) {
     const { prompt = '', actionType, agentSlug, contextSize, note } = req.body || {};
 
     const risk = classifyAction(prompt);
-    const policy = evaluateActionPolicy({ actionType: actionType || 'INTERNAL_RUN', actionPayload: req.body || {} });
 
-    if (!policy.allowed) {
-      return operatorError(res, 'POLICY_BLOCKED', policy.reason, 403);
+    // Policy-first: only check explicit hard-blocked action types. The policy
+    // module's default "orange" fallthrough applies to named action types, not
+    // general runs (see worker-contracts.js createHermesRunDispatcher).
+    const HARD_BLOCKED = ['GRANT_SUBMISSION', 'LEGAL_FINANCIAL_FILING', 'OUTBOUND_MESSAGE', 'PUBLIC_PUBLISHING', 'UNRESTRICTED_EXECUTION'];
+    if (actionType && HARD_BLOCKED.includes(actionType)) {
+      const policy = evaluateActionPolicy({ actionType, actionPayload: req.body || {} });
+      if (!policy.allowed) {
+        return operatorError(res, 'POLICY_BLOCKED', policy.reason, 403);
+      }
+    }
+    if (req.body && (req.body.unrestricted === true || req.body.crossTenant === true)) {
+      const policy = evaluateActionPolicy({ actionType: req.body.crossTenant ? 'CROSS_TENANT' : 'UNRESTRICTED_EXECUTION', actionPayload: req.body });
+      if (!policy.allowed) {
+        return operatorError(res, 'POLICY_BLOCKED', policy.reason, 403);
+      }
     }
 
     if (risk === 'orange') {

@@ -114,9 +114,27 @@ Extend Mission OS from v0.5 (deployment handoff) to v0.6 (managed agent runtime 
 - `docs/WORKER-RUNTIME-CONTRACTS.md` — Contract design, policy rules, dispatch examples
 - Total: 82 tests pass, build passes, bundle smoke 25/25 ok
 
+### Phase 4: Model Gateway, Observability, Usage Ledger ✅
+- `packages/core/src/model-budgets.js` — Per-tenant monthly budget + warning/hard-block threshold evaluation
+- `packages/core/src/model-usage-ledger.js` — Append-only usage ledger (tokens, cost, no raw prompts), monthly/per-surface summaries
+- `packages/core/src/trace-links.js` — Tenant-scoped Langfuse trace-link registry
+- `packages/core/src/langfuse-metadata.js` — Trace tag/metadata builder with sensitive-field redaction
+- `packages/core/src/litellm-config.js` — Per-tenant LiteLLM virtual-key config builder + raw-key-leak validator
+- `packages/core/src/openwebui-bootstrap.js` — Per-tenant Open WebUI bootstrap builder + signup/provider validator
+- `services/mission-api/src/operator/budgets.js` — GET /api/operator/budgets
+- `services/mission-api/src/operator/model-usage.js` — GET /api/operator/model-usage[/summary]
+- `services/mission-api/src/operator/traces.js` — GET /api/operator/traces[/:id]
+- `db/migrations/0005_v06_model_gateway_observability.sql` — `model_budgets`, `model_usage_ledger`, `trace_links`, `integration_configs` tables (Postgres parity; not wired into the JSON-backed runtime yet)
+- `missionctl/missionctl.mjs` — `model budget show|set`, `model usage summary`, `model traces list` CLI commands; bundle smoke extended with 10 Phase 4 checks (35/35 total)
+- `packages/core/tests/{model-budgets,model-usage-ledger,trace-links,langfuse-metadata,litellm-config,openwebui-bootstrap}.test.js` — 27 new unit tests
+- `services/mission-api/tests/operator-api.test.js` — 6 new operator API tests for budgets/model-usage/traces handlers
+- **Fixed a pre-existing test infrastructure gap**: `vitest.config.js` never included `services/**/tests/**/*.test.js`, so `operator-api.test.js` was silently excluded from every prior `npm test` run. Fixing this surfaced two more pre-existing bugs: broken relative import paths in the test file, and `runs.js` calling `evaluateActionPolicy` with an unrecognized `actionType` (`'INTERNAL_RUN'`), which hit the policy module's default "orange, not allowed" fallthrough and hard-blocked every run regardless of actual risk level. Both are now fixed; `runs.js` now only invokes `evaluateActionPolicy` for the explicit hard-blocked action types, matching the existing pattern in `worker-contracts.js`.
+- `docs/MODEL-GATEWAY.md`, `docs/MODEL-USAGE-LEDGER.md`, `docs/OBSERVABILITY-AND-TRACES.md`, `docs/LITELLM-LANGFUSE-OPENWEBUI.md` — new Phase 4 docs
+- `docs/OPERATOR-API.md` — updated with 5 new routes and Phase 4 known limitations
+- Total: 136 tests pass (109 previously-counted + 27 new — the prior "82 tests" count never actually included `operator-api.test.js`), build passes, bundle smoke 35/35 ok
+
 ## Not yet done
 
-- P4: Model Gateway, Observability, Usage Ledger
 - P5: Ops Dashboard UI
 - P6: Managed Deployment, Upgrade, Rollback, Backup
 - P7: Security, CI, QA Gates, Docs
