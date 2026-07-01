@@ -13,6 +13,15 @@ import { createOperatorKey, validateOperatorKey } from '../packages/core/src/aut
 import { getModelBudget, setModelBudget, evaluateBudgetStatus } from '../packages/core/src/model-budgets.js';
 import { summarizeMonthlyUsage, summarizeUsageBySurface } from '../packages/core/src/model-usage-ledger.js';
 import { getTraceLinks } from '../packages/core/src/trace-links.js';
+import {
+  createDeploymentRelease,
+  listDeploymentReleases,
+  activateDeploymentRelease,
+  rollbackDeploymentRelease,
+  getActiveDeploymentRelease
+} from '../packages/core/src/deployment-releases.js';
+import { recordSmokeResult, summarizeHealth } from '../packages/core/src/deployment-health.js';
+import { createBackup as coreCreateBackup, listBackups, restoreBackup as coreRestoreBackup } from '../packages/core/src/deployment-backup.js';
 
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -33,8 +42,10 @@ async function main() {
   if (group === 'frontend' && cmd === 'scaffold') return frontendScaffold(value || getFlag('--slug') || 'asc3nd');
   if (group === 'hostinger' && cmd === 'handoff') return hostingerHandoff(value || getFlag('--slug') || 'asc3nd');
   if (group === 'smoke') return smoke(cmd || value || getFlag('--slug') || 'asc3nd');
-  if (group === 'backup') return backup(cmd || value || getFlag('--slug') || 'asc3nd');
-  if (group === 'restore') return restore(cmd || value || getFlag('--file'));
+  if (group === 'backup') return backupCommand(cmd || value || getFlag('--slug') || 'asc3nd');
+  if (group === 'restore') return restoreCommand(cmd || value || getFlag('--file') || getFlag('--backup'));
+  if (group === 'upgrade') return upgradeCommand(cmd || value || getFlag('--slug') || 'demo-pnw');
+  if (group === 'rollback') return rollbackCommand(cmd || value || getFlag('--slug') || 'demo-pnw');
   if (group === 'icm' && cmd === 'run') return icmRun(value || getFlag('--slug') || 'asc3nd', args[3] || getFlag('--stage'));
   // v0.6 managed bundle commands
   if (group === 'bundle') return bundleCommand(cmd, value || getFlag('--slug') || 'demo-pnw');
@@ -50,7 +61,7 @@ async function main() {
 }
 
 function help() {
-  console.log(`Mission OS control plane v0.6\n\nCommands:\n\n  -- v0.5 (existing) --\n  missionctl doctor\n  missionctl tenant create <slug> --org "Org Name" --region "Seattle" --domain "https://client.org"\n  missionctl tenant keys <slug>\n  missionctl frontend scaffold <slug>\n  missionctl hostinger handoff <slug> --domain "client.org" --api-domain "api.client.org" --email "admin@client.org" --vps-ip "1.2.3.4"\n  missionctl smoke <slug>\n  missionctl backup <slug>\n  missionctl restore <backup-json>\n  missionctl icm run <slug> <stage>\n\n  -- v0.6 managed bundle --\n  missionctl bundle up <slug> [--dry-run]\n  missionctl bundle status <slug>\n  missionctl bundle smoke <slug> [--dry-run]\n  missionctl bundle release <slug>\n  missionctl bundle down <slug>\n\n  missionctl pack generate <slug>\n  missionctl pack validate <slug>\n  missionctl pack publish <slug>\n\n  missionctl hermes provision <slug>\n  missionctl hermes health <slug>\n\n  missionctl litellm sync <slug>\n  missionctl langfuse sync <slug>\n  missionctl openwebui sync <slug>\n\n  -- v0.6 model gateway / observability (Phase 4) --\n  missionctl model budget show <slug>\n  missionctl model budget set <slug> --amount 100 [--warning-pct 0.8] [--hard-block-pct 1.0]\n  missionctl model usage summary <slug> [--month 2026-06]\n  missionctl model traces list <slug> [--surface comms]\n`);
+  console.log(`Mission OS control plane v0.6\n\nCommands:\n\n  -- v0.5 (existing) --\n  missionctl doctor\n  missionctl tenant create <slug> --org "Org Name" --region "Seattle" --domain "https://client.org"\n  missionctl tenant keys <slug>\n  missionctl frontend scaffold <slug>\n  missionctl hostinger handoff <slug> --domain "client.org" --api-domain "api.client.org" --email "admin@client.org" --vps-ip "1.2.3.4"\n  missionctl smoke <slug>\n  missionctl backup <slug>\n  missionctl restore <backup-id> [--slug <tenant>]\n  missionctl upgrade <slug> --release <release-id>\n  missionctl rollback <slug> --to <release-id>\n  missionctl icm run <slug> <stage>\n\n  -- v0.6 managed bundle --\n  missionctl bundle up <slug> [--dry-run]\n  missionctl bundle status <slug>\n  missionctl bundle smoke <slug> [--dry-run]\n  missionctl bundle release <slug>\n  missionctl bundle down <slug>\n\n  missionctl pack generate <slug>\n  missionctl pack validate <slug>\n  missionctl pack publish <slug>\n\n  missionctl hermes provision <slug>\n  missionctl hermes health <slug>\n\n  missionctl litellm sync <slug>\n  missionctl langfuse sync <slug>\n  missionctl openwebui sync <slug>\n\n  -- v0.6 model gateway / observability (Phase 4) --\n  missionctl model budget show <slug>\n  missionctl model budget set <slug> --amount 100 [--warning-pct 0.8] [--hard-block-pct 1.0]\n  missionctl model usage summary <slug> [--month 2026-06]\n  missionctl model traces list <slug> [--surface comms]\n`);
 }
 
 function icmRun(slugInput, stage) {
@@ -442,7 +453,7 @@ function bundleCommand(cmd, slugInput) {
   if (cmd === 'up') return bundleUp(tenantId);
   if (cmd === 'status') return bundleStatus(tenantId);
   if (cmd === 'smoke') return bundleSmoke(tenantId);
-  if (cmd === 'release') return bundleRelease(tenantId);
+  if (cmd === 'release') return bundleReleaseFull(tenantId);
   if (cmd === 'down') return bundleDown(tenantId);
   throw new Error('Unknown bundle command: ' + cmd + '. Use: up, status, smoke, release, down');
 }
@@ -607,13 +618,29 @@ function bundleSmoke(tenantId) {
     ['ops route: /ops/health', fs.existsSync(path.join(ROOT, 'apps', 'site', 'app', 'ops', 'health', 'page.jsx'))],
     ['ops route: /ops/deployments', fs.existsSync(path.join(ROOT, 'apps', 'site', 'app', 'ops', 'deployments', 'page.jsx'))],
     ['ops route: /ops/openwebui', fs.existsSync(path.join(ROOT, 'apps', 'site', 'app', 'ops', 'openwebui', 'page.jsx'))],
-    ['no operator key literal in ops client code', !hasOperatorKeyLiteral(path.join(ROOT, 'apps', 'site'))]
+    ['no operator key literal in ops client code', !hasOperatorKeyLiteral(path.join(ROOT, 'apps', 'site'))],
+    // Phase 6: Deployment Lifecycle, Backup/Restore
+    ['deployment-releases module', fs.existsSync(path.join(ROOT, 'packages', 'core', 'src', 'deployment-releases.js'))],
+    ['deployment-health module', fs.existsSync(path.join(ROOT, 'packages', 'core', 'src', 'deployment-health.js'))],
+    ['deployment-backup module', fs.existsSync(path.join(ROOT, 'packages', 'core', 'src', 'deployment-backup.js'))],
+    ['db migration 0006', fs.existsSync(path.join(ROOT, 'db', 'migrations', '0006_v06_deployment_lifecycle.sql'))],
+    ['deployments operator API', fs.existsSync(path.join(ROOT, 'services', 'mission-api', 'src', 'operator', 'deployments.js'))],
+    ['backups operator API', fs.existsSync(path.join(ROOT, 'services', 'mission-api', 'src', 'operator', 'backups.js'))],
+    ['bundle status command', fs.readFileSync(path.join(ROOT, 'missionctl', 'missionctl.mjs'), 'utf8').includes('bundleStatus')],
+    ['upgrade command', fs.readFileSync(path.join(ROOT, 'missionctl', 'missionctl.mjs'), 'utf8').includes('upgradeCommand')],
+    ['rollback command', fs.readFileSync(path.join(ROOT, 'missionctl', 'missionctl.mjs'), 'utf8').includes('rollbackCommand')],
+    ['backup command', fs.readFileSync(path.join(ROOT, 'missionctl', 'missionctl.mjs'), 'utf8').includes('backupCommand')],
+    ['restore command', fs.readFileSync(path.join(ROOT, 'missionctl', 'missionctl.mjs'), 'utf8').includes('restoreCommand')],
+    ['fresh-tenant dashboard mkdirSync guard', fs.readFileSync(path.join(ROOT, 'packages', 'core', 'src', 'dashboard-state.js'), 'utf8').includes('mkdirSync')],
+    ['ops deployments page updated', fs.existsSync(path.join(ROOT, 'apps', 'site', 'app', 'ops', 'deployments', 'page.jsx'))]
   ];
   const failed = checks.filter(([, ok]) => !ok);
   console.table(checks.map(([name, ok]) => ({ check: name, status: ok ? 'ok' : 'missing' })));
   
+  const smokeStatus = failed.length === 0 ? 'passed' : 'failed';
   const eventType = failed.length === 0 ? 'SMOKE.PASSED' : 'SMOKE.FAILED';
   emitEvent({ tenantId, type: eventType, actor: 'system', payload: { passed: checks.length - failed.length, failed: failed.length } });
+  recordSmokeResult({ tenantId, status: smokeStatus, checks: checks.map(([name, ok]) => ({ name, status: ok ? 'ok' : 'missing' })) });
   generateDashboardState(tenantId);
   appendLog({ event: 'bundle.smoke', tenantId, passed: checks.length - failed.length, failed: failed.length });
   
@@ -633,6 +660,79 @@ function bundleRelease(tenantId) {
 
 function bundleDown(tenantId) {
   console.log(JSON.stringify({ ok: true, tenantId, message: 'Stub — run: docker compose -f docker-compose.managed.yml down' }, null, 2));
+}
+
+// ===================== v0.6 PHASE 6: Deployment Lifecycle =====================
+
+function bundleReleaseFull(tenantId) {
+  const outDir = path.join(BUNDLES, tenantId, 'managed');
+  if (!fs.existsSync(outDir)) throw new Error('No bundle found for ' + tenantId + '. Run: missionctl bundle up ' + tenantId + ' --dry-run');
+  const manifest = readJson(path.join(outDir, 'release-manifest.json'), {});
+  const version = manifest.version || '0.6.0';
+
+  const release = createDeploymentRelease({
+    tenantId,
+    version,
+    bundlePath: outDir,
+    manifestPath: path.join(outDir, 'release-manifest.json'),
+    createdBy: 'cli',
+    notes: 'Generated by missionctl bundle release'
+  });
+
+  manifest.released_at = new Date().toISOString();
+  manifest.status = 'released';
+  manifest.release_id = release.id;
+  writeJson(path.join(outDir, 'release-manifest.json'), manifest);
+
+  registerArtifact({
+    tenantId,
+    kind: 'release-manifest',
+    title: 'Release Manifest v' + version + ' for ' + tenantId,
+    storagePath: path.join(outDir, 'release-manifest.json')
+  });
+  generateDashboardState(tenantId);
+  appendLog({ event: 'bundle.release', tenantId, releaseId: release.id, version });
+  console.log(JSON.stringify({ ok: true, tenantId, releaseId: release.id, version, status: 'draft', note: 'Run: missionctl upgrade ' + tenantId + ' --release ' + release.id + ' to activate.' }, null, 2));
+}
+
+function upgradeCommand(slugInput) {
+  const tenantId = cleanTenantSlug(slugInput);
+  const releaseId = getFlag('--release');
+  if (!releaseId) throw new Error('--release <release-id> is required. Get a release id from: missionctl bundle release ' + tenantId);
+  const activated = activateDeploymentRelease({ tenantId, releaseId, actor: 'cli' });
+  generateDashboardState(tenantId);
+  appendLog({ event: 'upgrade', tenantId, releaseId, version: activated.version });
+  console.log(JSON.stringify({ ok: true, tenantId, releaseId, version: activated.version, status: 'active', activatedAt: activated.activated_at }, null, 2));
+}
+
+function rollbackCommand(slugInput) {
+  const tenantId = cleanTenantSlug(slugInput);
+  const targetId = getFlag('--to');
+  if (!targetId) throw new Error('--to <release-id> is required');
+  const releases = listDeploymentReleases({ tenantId });
+  const active = getActiveDeploymentRelease({ tenantId });
+  if (!active) throw new Error('No active release to roll back from for ' + tenantId);
+  const result = rollbackDeploymentRelease({ tenantId, releaseId: active.id, targetReleaseId: targetId, actor: 'cli' });
+  generateDashboardState(tenantId);
+  appendLog({ event: 'rollback', tenantId, from: active.id, to: targetId });
+  console.log(JSON.stringify({ ok: true, tenantId, rolledBack: result.current.id, restored: result.restored.id, restoredVersion: result.restored.version }, null, 2));
+}
+
+function backupCommand(slugInput) {
+  const tenantId = cleanTenantSlug(slugInput);
+  const notes = getFlag('--notes') || '';
+  const manifest = coreCreateBackup({ tenantId, notes, createdBy: 'cli' });
+  appendLog({ event: 'backup.created', tenantId, backupId: manifest.backup_id });
+  console.log(JSON.stringify({ ok: true, tenantId, backupId: manifest.backup_id, fileCount: manifest.file_count, checksum: manifest.checksum_sha256 }, null, 2));
+}
+
+function restoreCommand(slugOrBackupId) {
+  const tenantId = cleanTenantSlug(getFlag('--slug') || 'demo-pnw');
+  const backupId = getFlag('--backup') || slugOrBackupId;
+  if (!backupId) throw new Error('backup id is required. Use: missionctl restore --slug <tenant> --backup <backup-id>');
+  const result = coreRestoreBackup({ tenantId, backupId, createdBy: 'cli' });
+  appendLog({ event: 'restore.completed', tenantId, backupId });
+  console.log(JSON.stringify({ ok: true, tenantId, backupId, restoredFrom: result.restoredFrom }, null, 2));
 }
 
 function packGenerate(tenantId) {

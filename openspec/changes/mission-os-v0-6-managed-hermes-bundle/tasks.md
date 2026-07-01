@@ -126,10 +126,11 @@
 ## P3 — Production Hardening
 
 ### P3-1: Upgrade/rollback
-- [ ] Implement `missionctl upgrade` — pulls latest, runs migrations, restarts services
-- [ ] Implement `missionctl rollback` — reverts to previous migration version
-- [ ] Write tests
-- **Acceptance:** Tests pass. Upgrade and rollback work on clean VPS.
+- [x] Implement `missionctl upgrade <tenant> --release <id>` — activates a prepared release record (dry-run/local; no live Docker). Built in Phase 6.
+- [x] Implement `missionctl rollback <tenant> --to <id>` — marks current release rolled_back and re-activates target (local/dry-run). Built in Phase 6.
+- [x] Write tests — `packages/core/tests/deployment-releases.test.js` (24 tests). Built in Phase 6.
+- **Note:** "pulls latest, runs migrations, restarts services" (live VPS) remains deferred to production hardening phase. Local/dry-run lifecycle is complete.
+- **Acceptance:** Tests pass ✅
 
 ### P3-2: Billing export
 - [ ] Implement `missionctl billing export <tenant>` — CSV/JSON of model usage + artifact counts

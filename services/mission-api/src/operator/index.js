@@ -9,6 +9,8 @@ import { approveApproval, rejectApproval } from './approvals.js';
 import { getBudget } from './budgets.js';
 import { listModelUsage, getModelUsageSummary } from './model-usage.js';
 import { listTraces, getTrace } from './traces.js';
+import deploymentsRouter from './deployments.js';
+import backupsRouter from './backups.js';
 
 const router = Router();
 
@@ -42,5 +44,8 @@ router.get('/model-usage/summary', auth, requirePermission('budgets.read'), getM
 
 router.get('/traces', auth, requirePermission('events.read'), listTraces);
 router.get('/traces/:id', auth, requirePermission('events.read'), getTrace);
+
+router.use('/deployments', deploymentsRouter);
+router.use('/backups', backupsRouter);
 
 export default router;

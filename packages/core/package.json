@@ -30,6 +30,9 @@
     "./trace-links": "./src/trace-links.js",
     "./langfuse-metadata": "./src/langfuse-metadata.js",
     "./litellm-config": "./src/litellm-config.js",
-    "./openwebui-bootstrap": "./src/openwebui-bootstrap.js"
+    "./openwebui-bootstrap": "./src/openwebui-bootstrap.js",
+    "./deployment-releases": "./src/deployment-releases.js",
+    "./deployment-health": "./src/deployment-health.js",
+    "./deployment-backup": "./src/deployment-backup.js"
   }
 }
