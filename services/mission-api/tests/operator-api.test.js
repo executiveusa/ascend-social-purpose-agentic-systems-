@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { createRepositories, clearRepositoryCache } from '../../../packages/db/src/index.js';
 import { createOperatorKey, validateOperatorKey } from '../../../packages/core/src/auth.js';
 import { emitEvent } from '../../../packages/core/src/events.js';
@@ -291,6 +291,16 @@ describe('worker dispatcher dry-run and policy-first', () => {
 // --- model gateway / observability / usage ledger ---
 
 describe('budgets handler', () => {
+  let origDataDir;
+  beforeEach(() => {
+    origDataDir = process.env.DATA_DIR;
+    process.env.DATA_DIR = `/tmp/test-budgets-${Date.now()}`;
+  });
+  afterEach(() => {
+    if (origDataDir === undefined) delete process.env.DATA_DIR;
+    else process.env.DATA_DIR = origDataDir;
+  });
+
   it('returns tenant-scoped budget and status', async () => {
     const { operatorKey } = createOperatorKey({ tenantId: TENANT, label: 'test', scopes: ['operator'], createdBy: 'test' });
     const { getBudget } = await import('../src/operator/budgets.js');

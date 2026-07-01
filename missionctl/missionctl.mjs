@@ -12,6 +12,7 @@ import { generateDashboardState } from '../packages/core/src/dashboard-state.js'
 import { createOperatorKey, validateOperatorKey } from '../packages/core/src/auth.js';
 import { getModelBudget, setModelBudget, evaluateBudgetStatus } from '../packages/core/src/model-budgets.js';
 import { summarizeMonthlyUsage, summarizeUsageBySurface } from '../packages/core/src/model-usage-ledger.js';
+import { getArtifacts } from '../packages/core/src/artifacts.js';
 import { getTraceLinks } from '../packages/core/src/trace-links.js';
 import {
   createDeploymentRelease,
@@ -57,11 +58,13 @@ async function main() {
   if (group === 'operator-key') return operatorKeyCommand(cmd, value || getFlag('--slug') || 'demo-pnw');
   // v0.6 Phase 4: model gateway, observability, usage ledger
   if (group === 'model') return modelCommand(cmd, value, args[3] || getFlag('--slug') || 'demo-pnw');
+  // v0.7 billing export
+  if (group === 'billing' && cmd === 'export') return billingExportCommand(value || getFlag('--slug') || 'demo-pnw');
   throw new Error(`Unknown command: ${args.join(' ')}`);
 }
 
 function help() {
-  console.log(`Mission OS control plane v0.6\n\nCommands:\n\n  -- v0.5 (existing) --\n  missionctl doctor\n  missionctl tenant create <slug> --org "Org Name" --region "Seattle" --domain "https://client.org"\n  missionctl tenant keys <slug>\n  missionctl frontend scaffold <slug>\n  missionctl hostinger handoff <slug> --domain "client.org" --api-domain "api.client.org" --email "admin@client.org" --vps-ip "1.2.3.4"\n  missionctl smoke <slug>\n  missionctl backup <slug>\n  missionctl restore <backup-id> [--slug <tenant>]\n  missionctl upgrade <slug> --release <release-id>\n  missionctl rollback <slug> --to <release-id>\n  missionctl icm run <slug> <stage>\n\n  -- v0.6 managed bundle --\n  missionctl bundle up <slug> [--dry-run]\n  missionctl bundle status <slug>\n  missionctl bundle smoke <slug> [--dry-run]\n  missionctl bundle release <slug>\n  missionctl bundle down <slug>\n\n  missionctl pack generate <slug>\n  missionctl pack validate <slug>\n  missionctl pack publish <slug>\n\n  missionctl hermes provision <slug>\n  missionctl hermes health <slug>\n\n  missionctl litellm sync <slug>\n  missionctl langfuse sync <slug>\n  missionctl openwebui sync <slug>\n\n  -- v0.6 model gateway / observability (Phase 4) --\n  missionctl model budget show <slug>\n  missionctl model budget set <slug> --amount 100 [--warning-pct 0.8] [--hard-block-pct 1.0]\n  missionctl model usage summary <slug> [--month 2026-06]\n  missionctl model traces list <slug> [--surface comms]\n`);
+  console.log(`Mission OS control plane v0.6\n\nCommands:\n\n  -- v0.5 (existing) --\n  missionctl doctor\n  missionctl tenant create <slug> --org "Org Name" --region "Seattle" --domain "https://client.org"\n  missionctl tenant keys <slug>\n  missionctl frontend scaffold <slug>\n  missionctl hostinger handoff <slug> --domain "client.org" --api-domain "api.client.org" --email "admin@client.org" --vps-ip "1.2.3.4"\n  missionctl smoke <slug>\n  missionctl backup <slug>\n  missionctl restore <backup-id> [--slug <tenant>]\n  missionctl upgrade <slug> --release <release-id>\n  missionctl rollback <slug> --to <release-id>\n  missionctl icm run <slug> <stage>\n\n  -- v0.6 managed bundle --\n  missionctl bundle up <slug> [--dry-run]\n  missionctl bundle status <slug>\n  missionctl bundle smoke <slug> [--dry-run]\n  missionctl bundle release <slug>\n  missionctl bundle down <slug>\n\n  missionctl pack generate <slug>\n  missionctl pack validate <slug>\n  missionctl pack publish <slug>\n\n  missionctl hermes provision <slug>\n  missionctl hermes health <slug>\n\n  missionctl litellm sync <slug>\n  missionctl langfuse sync <slug>\n  missionctl openwebui sync <slug>\n\n  -- v0.6 model gateway / observability (Phase 4) --\n  missionctl model budget show <slug>\n  missionctl model budget set <slug> --amount 100 [--warning-pct 0.8] [--hard-block-pct 1.0]\n  missionctl model usage summary <slug> [--month 2026-06]\n  missionctl model traces list <slug> [--surface comms]\n\n  -- v0.7 billing / export --\n  missionctl billing export <slug> [--month 2026-06] [--format json|csv]\n`);
 }
 
 function icmRun(slugInput, stage) {
@@ -632,7 +635,21 @@ function bundleSmoke(tenantId) {
     ['backup command', fs.readFileSync(path.join(ROOT, 'missionctl', 'missionctl.mjs'), 'utf8').includes('backupCommand')],
     ['restore command', fs.readFileSync(path.join(ROOT, 'missionctl', 'missionctl.mjs'), 'utf8').includes('restoreCommand')],
     ['fresh-tenant dashboard mkdirSync guard', fs.readFileSync(path.join(ROOT, 'packages', 'core', 'src', 'dashboard-state.js'), 'utf8').includes('mkdirSync')],
-    ['ops deployments page updated', fs.existsSync(path.join(ROOT, 'apps', 'site', 'app', 'ops', 'deployments', 'page.jsx'))]
+    ['ops deployments page updated', fs.existsSync(path.join(ROOT, 'apps', 'site', 'app', 'ops', 'deployments', 'page.jsx'))],
+    // Phase 7: Security, CI, QA Gates
+    ['secret-audit script', fs.existsSync(path.join(ROOT, 'scripts', 'secret-audit.mjs'))],
+    ['generated-file-audit script', fs.existsSync(path.join(ROOT, 'scripts', 'generated-file-audit.mjs'))],
+    ['test-discovery-audit script', fs.existsSync(path.join(ROOT, 'scripts', 'test-discovery-audit.mjs'))],
+    ['openspec-task-audit script', fs.existsSync(path.join(ROOT, 'scripts', 'openspec-task-audit.mjs'))],
+    ['verify-v06 script', fs.existsSync(path.join(ROOT, 'scripts', 'verify-v06.mjs'))],
+    ['CI workflow', fs.existsSync(path.join(ROOT, '.github', 'workflows', 'ci.yml'))],
+    ['operator manual', fs.existsSync(path.join(ROOT, 'docs', 'OPERATOR-MANUAL.md'))],
+    ['security checklist', fs.existsSync(path.join(ROOT, 'docs', 'SECURITY-CHECKLIST.md'))],
+    ['CI QA gates doc', fs.existsSync(path.join(ROOT, 'docs', 'CI-QA-GATES.md'))],
+    ['phase 7 production hardening doc', fs.existsSync(path.join(ROOT, 'docs', 'PHASE-7-PRODUCTION-HARDENING.md'))],
+    ['billing export command', fs.readFileSync(path.join(ROOT, 'missionctl', 'missionctl.mjs'), 'utf8').includes('billingExportCommand')],
+    ['handoff hermes env gitignored', fs.readFileSync(path.join(ROOT, '.gitignore'), 'utf8').includes('handoff/*/managed/hermes/env')],
+    ['.gitignore blocks handoff runtime envs', fs.readFileSync(path.join(ROOT, '.gitignore'), 'utf8').includes('handoff/*/managed/hermes/env')]
   ];
   const failed = checks.filter(([, ok]) => !ok);
   console.table(checks.map(([name, ok]) => ({ check: name, status: ok ? 'ok' : 'missing' })));
@@ -942,6 +959,51 @@ function modelCommand(cmd, sub, tenantId) {
   } else {
     throw new Error(`Unknown model command: ${cmd} ${sub || ''}`.trim());
   }
+}
+
+function billingExportCommand(slugInput) {
+  const tenantId = cleanTenantSlug(slugInput);
+  const month = getFlag('--month');
+  const format = getFlag('--format') || 'json';
+
+  const monthly = summarizeMonthlyUsage({ tenantId, month: month || undefined });
+  const bySurface = summarizeUsageBySurface({ tenantId, month: month || undefined });
+  const artifacts = getArtifacts({ tenantId });
+
+  const exportData = {
+    tenant_id: tenantId,
+    export_period: month || new Date().toISOString().substring(0, 7),
+    generated_at: new Date().toISOString(),
+    model_usage: {
+      total_cost_usd: monthly.totalCostUsd || 0,
+      total_tokens: monthly.totalTokens || 0,
+      total_calls: monthly.totalCalls || 0,
+      by_surface: bySurface.surfaces || [],
+    },
+    artifact_counts: {
+      total: artifacts.length,
+      by_kind: artifacts.reduce((acc, a) => { acc[a.kind] = (acc[a.kind] || 0) + 1; return acc; }, {}),
+    },
+  };
+
+  if (format === 'csv') {
+    const lines = [
+      'tenant_id,period,total_cost_usd,total_tokens,total_calls,artifact_count',
+      [
+        exportData.tenant_id,
+        exportData.export_period,
+        exportData.model_usage.total_cost_usd,
+        exportData.model_usage.total_tokens,
+        exportData.model_usage.total_calls,
+        exportData.artifact_counts.total,
+      ].join(','),
+    ];
+    console.log(lines.join('\n'));
+  } else {
+    console.log(JSON.stringify({ ok: true, ...exportData }, null, 2));
+  }
+
+  appendLog({ event: 'billing.export', tenantId, month: exportData.export_period, format });
 }
 
 function copyHermesTemplates(tenantId, outDir) {

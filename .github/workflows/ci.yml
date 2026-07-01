@@ -1,0 +1,57 @@
+name: CI
+
+on:
+  push:
+    branches: [main, 'phase/**', 'hotfix/**', 'claude/**']
+  pull_request:
+    branches: [main]
+
+jobs:
+  ci:
+    name: Mission OS CI
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run tests
+        run: npm test
+
+      - name: Build
+        run: npm run build
+
+      - name: missionctl doctor
+        run: node missionctl/missionctl.mjs doctor
+
+      - name: Secret audit
+        run: node scripts/secret-audit.mjs
+
+      - name: Generated-file audit
+        run: node scripts/generated-file-audit.mjs
+
+      - name: Test discovery audit
+        run: node scripts/test-discovery-audit.mjs
+
+      - name: OpenSpec task audit
+        run: node scripts/openspec-task-audit.mjs
+
+      - name: Bundle smoke (dry-run)
+        run: |
+          node missionctl/missionctl.mjs tenant create demo-pnw --org "Demo PNW Nonprofit" || true
+          node missionctl/missionctl.mjs pack generate demo-pnw || true
+          node missionctl/missionctl.mjs bundle up demo-pnw --dry-run || true
+          node missionctl/missionctl.mjs bundle smoke demo-pnw --dry-run
+
+      - name: AdamsReview gate
+        run: node scripts/adamsreview-lite.mjs

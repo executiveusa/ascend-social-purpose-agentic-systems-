@@ -5,23 +5,23 @@
   email admin@example.org
 }
 
-api.demo-pnw.org {
+api.nwyouth.org {
   encode gzip zstd
   reverse_proxy mission-api:4000
 }
 
-demo-pnw.org {
+nwyouth.org {
   encode gzip zstd
   reverse_proxy site:3000
 }
 
 # Open WebUI — staff access only, behind auth
-demo-pnw.org/workspace/* {
+nwyouth.org/workspace/* {
   reverse_proxy open-webui:8080
 }
 
 # Langfuse — staff access only, behind auth
-demo-pnw.org/observability/* {
+nwyouth.org/observability/* {
   reverse_proxy langfuse-web:3000
 }
 

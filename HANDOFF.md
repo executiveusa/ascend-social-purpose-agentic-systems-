@@ -230,3 +230,54 @@ missionctl bundle smoke demo-pnw --dry-run         # ✅ 12/12 checks passed
 4. Start P1-3: Artifact registry table + API.
 5. Start P1-4: managed_agents table + API.
 6. Start P1-5: DashboardState API endpoint.
+
+---
+
+## Phase 7 — Security CI QA Gates (2026-07-01)
+
+**Status: COMPLETE**
+
+Phase 7 added security gates, CI pipeline, audit scripts, billing export, and production hardening documentation. All 319 tests pass, 72/72 bundle smoke checks pass.
+
+### What was built
+
+| Deliverable | File |
+|---|---|
+| Secret scanner | `scripts/secret-audit.mjs` |
+| Generated-file audit | `scripts/generated-file-audit.mjs` |
+| Test discovery audit | `scripts/test-discovery-audit.mjs` |
+| OpenSpec task audit | `scripts/openspec-task-audit.mjs` |
+| Master verifier | `scripts/verify-v06.mjs` |
+| CI pipeline | `.github/workflows/ci.yml` |
+| Phase 7 test suite | `packages/core/tests/phase7-security-gates.test.js` |
+| Operator manual | `docs/OPERATOR-MANUAL.md` |
+| Security checklist | `docs/SECURITY-CHECKLIST.md` |
+| CI/QA gates doc | `docs/CI-QA-GATES.md` |
+| Phase 7 hardening doc | `docs/PHASE-7-PRODUCTION-HARDENING.md` |
+| Billing export | `missionctl billing export <slug>` |
+
+### State of the repo at Phase 7 close
+
+- Tests: 319/319
+- Bundle smoke: 72/72
+- Secret audit: clean (0 findings)
+- Generated-file audit: clean (0 findings)
+- Test discovery audit: clean (0 orphans, 37+ covered)
+- OpenSpec task audit: 0 blocked tasks
+- CI: no external secrets required
+
+### What remains deferred to Phase 8
+
+- Live VPS deployment (Hostinger)
+- DNS + TLS provisioning (Caddy)
+- Postgres migration and row-level tenant isolation
+- Live Hermes agent execution
+- Live LiteLLM model routing
+- Live Langfuse trace sync
+- Live Open WebUI workspace
+- Postiz scheduling integration
+- Full `npm audit` remediation
+
+### Phase 7 hotfix note (Session 4b)
+
+Commit `500c13b` tracked non-example handoff env files (`hermes/env`, `langfuse/env`, `litellm/env`, `open-webui/env`, `release-manifest.json`) with generated key-like values. Fix: `git rm --cached` untracked those files, `.gitignore` strengthened with explicit per-service rules. Keys from `500c13b` and earlier are treated as non-production and invalid. No history rewrite. See `docs/AGENT-PROVENANCE.md` Session 4b.

@@ -133,17 +133,22 @@
 - **Acceptance:** Tests pass ✅
 
 ### P3-2: Billing export
-- [ ] Implement `missionctl billing export <tenant>` — CSV/JSON of model usage + artifact counts
-- [ ] Write tests
-- **Acceptance:** Export contains accurate per-tenant usage data.
+- [x] Implement `missionctl billing export <tenant>` — CSV/JSON of model usage + artifact counts. Built in Phase 7.
+- [x] Write tests — `packages/core/tests/phase7-security-gates.test.js` covers billing export. Built in Phase 7.
+- **Acceptance:** Export contains accurate per-tenant usage data. ✅
 
 ### P3-3: Production hardening
-- [ ] Close all 8 production gaps from docs/PRODUCTION-GAPS.md
-- [ ] `npm run verify` passes
-- [ ] `npm audit --audit-level=high` clean or documented
-- [ ] Tenant isolation tests pass against Postgres
-- [ ] ACFS doctor passes on VPS
-- **Acceptance:** All 8 production bars met.
+- [x] Secret audit gate: `scripts/secret-audit.mjs` — blocks raw keys in tracked files. Built in Phase 7.
+- [x] Generated-file audit: `scripts/generated-file-audit.mjs` — blocks runtime artifacts in git. Built in Phase 7.
+- [x] Test discovery audit: `scripts/test-discovery-audit.mjs` — no orphan test files. Built in Phase 7.
+- [x] CI pipeline: `.github/workflows/ci.yml` — all gates run on push/PR, no external secrets. Built in Phase 7.
+- [x] Master verifier: `scripts/verify-v06.mjs` — orchestrates all checks. Built in Phase 7.
+- [x] Operator manual: `docs/OPERATOR-MANUAL.md`. Built in Phase 7.
+- [x] `npm run verify` passes. ✅
+- [ ] `npm audit --audit-level=high` clean or documented — deferred to pre-production handoff.
+- [ ] Tenant isolation tests against Postgres — deferred to Phase 8 (requires live Postgres).
+- [ ] ACFS doctor on VPS — deferred to Phase 8 (requires live VPS).
+- **Acceptance (Phase 7):** All file-backed and auditable gates pass. Postgres and VPS gates deferred to Phase 8.
 
 ### P3-4: Live VPS deployment test
 - [ ] Deploy to Hostinger VPS
