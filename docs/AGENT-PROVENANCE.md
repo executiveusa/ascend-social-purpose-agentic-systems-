@@ -71,6 +71,22 @@ Every work session logs:
 | Beads written | 0 |
 | Decisions | Bypass both legacy session-JWT auth and Operator API key auth via a same-origin server-side `/api/ops/*` proxy layer reading `@asc3nd/core/*` directly, since the two existing auth schemes do not interoperate and exposing an operator key to client JS is explicitly forbidden; extend `/ops` additively rather than replace the pre-existing Today cockpit |
 
+### Session 4 — 2026-07-01 (Phase 6: Managed Deployment Lifecycle)
+
+| Field | Value |
+|---|---|
+| Session ID | 2026-07-01-004 |
+| Date | 2026-07-01T03:00:00Z |
+| Agent/Builder | Claude Code |
+| Model | claude-sonnet-4-6 |
+| MCPs used | github |
+| Files created | `packages/core/src/deployment-releases.js`, `packages/core/src/deployment-health.js`, `packages/core/src/deployment-backup.js`, `packages/core/tests/deployment-releases.test.js`, `packages/core/tests/deployment-health.test.js`, `packages/core/tests/deployment-backup.test.js`, `packages/core/tests/fresh-tenant.test.js`, `db/migrations/0006_v06_deployment_lifecycle.sql`, `services/mission-api/src/operator/deployments.js`, `services/mission-api/src/operator/backups.js`, `apps/site/app/api/ops/deployments/route.js`, `apps/site/tests/ops-deployments.test.js`, `docs/DEPLOYMENT-LIFECYCLE.md`, `docs/BACKUP-RESTORE.md`, `docs/RELEASE-MANIFEST.md` |
+| Files modified | `packages/core/src/dashboard-state.js` (ENOENT fix), `packages/core/package.json` (+3 exports), `services/mission-api/src/operator/index.js` (+deployments/backups routers), `apps/site/app/ops/deployments/page.jsx` (placeholder → real data), `missionctl/missionctl.mjs` (+5 commands, smoke extended 44→57 checks), `HANDOFF.md`, `docs/AGENT-PROVENANCE.md`, `openspec/changes/mission-os-v0-6-managed-hermes-bundle/tasks.md` |
+| Tests written | 81 new tests across 5 files |
+| Tests passed | 270/270 |
+| Beads written | 0 |
+| Decisions | Fixed pre-existing dashboard-state ENOENT via mkdirSync guard in core module (not test workaround); used @asc3nd/core package imports in operator routes (consistent with Phase 3/4 pattern); backup/restore is local/file-backed with tenant-mismatch and path-traversal hard blocks; /ops/deployments upgraded from static placeholder to live data showing releases, smoke history, backups |
+
 ## Rules
 
 1. Every session must be logged here before ending.

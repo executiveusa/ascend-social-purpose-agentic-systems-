@@ -4,10 +4,10 @@
 
 ## Current state
 
-**Version:** v0.6 (Managed Hermes Bundle) — Phase 5 Ops Dashboard UI complete
-**Date:** 2026-06-30
+**Version:** v0.6 (Managed Hermes Bundle) — Phase 6 Deployment Lifecycle complete
+**Date:** 2026-07-01
 **Repo:** `https://github.com/executiveusa/ascend-social-purpose-agentic-systems-.git`
-**Branch:** `phase/ops-dashboard-ui`
+**Branch:** `phase/managed-deployment-upgrade-rollback-backup`
 
 ## Goal
 
@@ -146,9 +146,28 @@ Extend Mission OS from v0.5 (deployment handoff) to v0.6 (managed agent runtime 
 - `docs/OPS-DASHBOARD.md` — new: route map, data-source strategy (and why the legacy/Operator-API dual-auth split required a local proxy layer), security rule, live/dry-run/placeholder breakdown
 - No new UI framework introduced; no public marketing routes touched; no live Hermes/LiteLLM/Langfuse/Open WebUI calls; no release/rollback/backup commands implemented
 
+### Phase 6: Managed Deployment Lifecycle ✅
+- `packages/core/src/deployment-releases.js` — full release lifecycle (create/list/get/activate/fail/rollback/getActive)
+- `packages/core/src/deployment-health.js` — health check and smoke result recording/summarizing
+- `packages/core/src/deployment-backup.js` — backup creation with SHA-256 checksum, listing, get, restore with tenant-mismatch and path-traversal guards
+- `packages/core/tests/deployment-releases.test.js` — 24 tests
+- `packages/core/tests/deployment-health.test.js` — 22 tests
+- `packages/core/tests/deployment-backup.test.js` — 17 tests
+- `packages/core/tests/fresh-tenant.test.js` — 5 tests (ENOENT hardening)
+- `packages/core/src/dashboard-state.js` — fixed ENOENT bug (mkdirSync guard for fresh tenant)
+- `db/migrations/0006_v06_deployment_lifecycle.sql` — 4 new tables
+- `services/mission-api/src/operator/deployments.js` — GET /api/operator/deployments[/health][/:id]
+- `services/mission-api/src/operator/backups.js` — GET /api/operator/backups[/:id]
+- `services/mission-api/src/operator/index.js` — mounted deployments + backups routers
+- `apps/site/app/api/ops/deployments/route.js` — same-origin deployment state route handler
+- `apps/site/app/ops/deployments/page.jsx` — upgraded from placeholder: shows release history, smoke history, backup list, CLI instructions
+- `apps/site/tests/ops-deployments.test.js` — 19 tests
+- `missionctl/missionctl.mjs` — bundleReleaseFull, upgradeCommand, rollbackCommand, backupCommand, restoreCommand, smoke extended to 57 checks
+- `docs/DEPLOYMENT-LIFECYCLE.md`, `docs/BACKUP-RESTORE.md`, `docs/RELEASE-MANIFEST.md` — new Phase 6 docs
+
 ## Not yet done
 
-- P6: Managed Deployment, Upgrade, Rollback, Backup
+- P7: Security, CI, QA Gates, Docs
 - P7: Security, CI, QA Gates, Docs
 - P8: Demo Tenant, Offer Assets, Final Handoff
 

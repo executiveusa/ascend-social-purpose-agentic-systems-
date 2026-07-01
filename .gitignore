@@ -20,3 +20,6 @@ handoff/*/managed/**/*.env
 !handoff/*/managed/**/*.env.example
 !**/*.env.example
 
+
+# Generated backup artifacts (runtime, not committed)
+backups/

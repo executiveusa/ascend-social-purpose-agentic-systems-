@@ -49,6 +49,9 @@ export function generateDashboardState(tenantId) {
     nextActions: pendingApprovals > 0 ? [{ type: 'REVIEW_APPROVALS', count: pendingApprovals }] : []
   };
 
+  if (!fs.existsSync(tenantDir)) {
+    fs.mkdirSync(tenantDir, { recursive: true });
+  }
   const dashboardStateFile = path.join(tenantDir, 'dashboard-state.json');
   fs.writeFileSync(dashboardStateFile, JSON.stringify(state, null, 2), 'utf8');
 
