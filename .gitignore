@@ -14,9 +14,14 @@ test-results
 
 .vercel
 
-# Mission OS generated managed bundle secrets
+# Mission OS generated managed bundle secrets — runtime, never commit non-example files
 handoff/*/managed/.env.managed
 handoff/*/managed/**/*.env
+handoff/*/managed/hermes/env
+handoff/*/managed/langfuse/env
+handoff/*/managed/open-webui/env
+handoff/*/managed/litellm/env
+handoff/*/managed/release-manifest.json
 !handoff/*/managed/**/*.env.example
 !**/*.env.example
 
