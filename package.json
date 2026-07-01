@@ -31,6 +31,11 @@
     "smoke:tenant": "node missionctl/missionctl.mjs smoke",
     "backup": "node missionctl/missionctl.mjs backup",
     "adamsreview": "node scripts/adamsreview-lite.mjs",
+    "secret:audit": "node scripts/secret-audit.mjs",
+    "generated:audit": "node scripts/generated-file-audit.mjs",
+    "test:audit": "node scripts/test-discovery-audit.mjs",
+    "openspec:audit": "node scripts/openspec-task-audit.mjs",
+    "verify:v06": "node scripts/verify-v06.mjs",
     "hostinger:handoff": "node missionctl/missionctl.mjs hostinger handoff",
     "db:migrate": "node packages/db/scripts/migrate.mjs"
   },

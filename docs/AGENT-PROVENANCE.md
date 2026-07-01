@@ -94,3 +94,36 @@ Every work session logs:
 3. If Atomic is not installed, this file is the authoritative provenance record.
 4. Provenance is never deleted — append only.
 5. Agent identity is the tool/builder, not a persona name.
+
+### Session 4b — 2026-07-01 (Phase 6 Hotfix: Remove tracked handoff env files)
+
+| Field | Value |
+|---|---|
+| Session ID | 2026-07-01-004b |
+| Date | 2026-07-01T06:00:00Z |
+| Agent/Builder | Claude Code |
+| Model | claude-sonnet-4-6 |
+| MCPs used | github |
+| Files created | none |
+| Files modified | `.gitignore` (strengthened handoff env rules), `handoff/demo-pnw/managed/Caddyfile.managed` (reverted to `demo-pnw.org` placeholder), `HANDOFF.md` (hotfix note) |
+| Files removed from tracking | `handoff/demo-pnw/managed/hermes/env`, `handoff/demo-pnw/managed/langfuse/env`, `handoff/demo-pnw/managed/litellm/env`, `handoff/demo-pnw/managed/open-webui/env`, `handoff/demo-pnw/managed/release-manifest.json` |
+| Tests written | 0 |
+| Tests passed | 270/270 |
+| Beads written | 0 |
+| Decisions | Architect ruling: no history rewrite; treat keys from commit 500c13b and earlier as non-production/invalid; `git rm --cached` untracked files, strengthened `.gitignore` with explicit per-service rules; files remain on local disk (gitignored) but not in HEAD |
+
+### Session 5 — 2026-07-01 (Phase 7: Security CI QA Gates Docs)
+
+| Field | Value |
+|---|---|
+| Session ID | 2026-07-01-005 |
+| Date | 2026-07-01T18:00:00Z |
+| Agent/Builder | Claude Code |
+| Model | claude-sonnet-4-6 |
+| MCPs used | github |
+| Files created | `scripts/secret-audit.mjs`, `scripts/generated-file-audit.mjs`, `scripts/test-discovery-audit.mjs`, `scripts/openspec-task-audit.mjs`, `scripts/verify-v06.mjs`, `.github/workflows/ci.yml`, `packages/core/tests/phase7-security-gates.test.js`, `docs/SECURITY-CHECKLIST.md`, `docs/CI-QA-GATES.md`, `docs/PHASE-7-PRODUCTION-HARDENING.md`, `docs/OPERATOR-MANUAL.md` |
+| Files modified | `missionctl/missionctl.mjs` (+billingExportCommand, bundleSmoke 57→72 checks, +billing route, +help text), `package.json` (+5 npm scripts), `services/mission-api/tests/operator-api.test.js` (budget test isolation fix), `openspec/changes/mission-os-v0-6-managed-hermes-bundle/tasks.md` (P3-2 and P3-3 marked complete), `HANDOFF.md`, `docs/AGENT-PROVENANCE.md` |
+| Tests written | 49 new tests in `packages/core/tests/phase7-security-gates.test.js` |
+| Tests passed | 319/319 |
+| Beads written | 0 |
+| Decisions | Budget test state contamination (from prior missionctl validation run setting a low budget) fixed by isolating DATA_DIR in beforeEach/afterEach rather than resetting real mission-data; secret-audit.mjs uses isPlaceholder() check and skips comment/assertion lines to avoid false positives in test and template files; bundleSmoke reads .gitignore content (not execSync git ls-files) for the gitignore-rule checks to avoid ES module require() error; CI runs with no external secrets (all checks are local/dry-run) |
