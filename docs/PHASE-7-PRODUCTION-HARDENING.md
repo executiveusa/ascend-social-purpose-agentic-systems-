@@ -1,8 +1,23 @@
 # Phase 7 Production Hardening — Mission OS v0.6
 
-## Status: IN PROGRESS (Phase 7 build)
+## Status: COMPLETE / SHIPPED
 
-Phase 7 adds security gates, CI, QA audits, and documentation to harden the repo for production-grade repeatability before final demo/handoff.
+Phase 7 added security gates, CI, QA audits, and documentation to harden the repo
+for production-grade repeatability. The Phase 7 work is **merged to `main`**
+(commit `2aff3de`, merge `4fb7c83`), sitting on top of the Phase 6 hotfix
+(`c774dae`). A subsequent VERIFY-AND-FIX pass made the gates green on Windows
+and corrected this status line.
+
+**Explicitly deferred to Phase 8 / post-v0.6 activation** (require live infra
+or credentials; not in scope for the v0.6 dry-run release candidate):
+
+- Postgres tenant-isolation tests — require live Postgres.
+- VPS ACFS doctor — requires a live VPS.
+- Live VPS / Vercel / external-service activation — requires credentials and
+  explicit human approval.
+
+See the "Still-open gaps" and "What moves to Phase 8" sections below for the
+full deferred list.
 
 ## Closed gaps (Phase 7)
 
