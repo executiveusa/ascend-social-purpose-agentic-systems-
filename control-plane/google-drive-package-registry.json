@@ -1,0 +1,70 @@
+{
+  "schema_version": "1.0.0",
+  "registry_revision": 1,
+  "updated_at": "2026-08-04T18:55:00-06:00",
+  "owner": "ASC3ND control plane",
+  "storage_policy": "Google Drive copies use immutable canonical filenames after upload.",
+  "packages": [
+    {
+      "package_id": "asc3nd-structured-project",
+      "canonical_filename": "ASC3ND_STRUCTURED_PROJECT_PACKAGE.zip",
+      "aliases": [],
+      "purpose": "Structured project manifest, repository map, knowledge graph, Mermaid diagrams, and execution plan.",
+      "status": "generated",
+      "drive_filename_confirmed": false,
+      "drive_file_id": null,
+      "drive_url": null,
+      "contains": [
+        "asc3nd_project_manifest.json",
+        "asc3nd_graph.json",
+        "ASC3ND_PROJECT_GRAPH.md",
+        "README.md"
+      ]
+    },
+    {
+      "package_id": "community-cuts-campaign-round-1",
+      "canonical_filename": "ASC3ND_COMMUNITY_CUTS_CAMPAIGN_ROUND_1.zip",
+      "aliases": [],
+      "purpose": "First-round Community Cuts print and Instagram campaign assets, QR masters, manifest, and README.",
+      "status": "generated",
+      "drive_filename_confirmed": false,
+      "drive_file_id": null,
+      "drive_url": null,
+      "contains": [
+        "ASSET_MANIFEST.csv",
+        "README.txt",
+        "QR master PNG",
+        "QR master SVG"
+      ]
+    },
+    {
+      "package_id": "facebook-30-day-campaign",
+      "canonical_filename": "ASC3ND_FACEBOOK_30_DAY_CAMPAIGN.zip",
+      "aliases": [],
+      "purpose": "Facebook Page identity, event covers, Monday/Wednesday/Friday campaign assets, calendar, shorts plan, Postiz draft records, QR masters, and agent-readable manifests.",
+      "status": "generated_and_control_plane_registered",
+      "drive_filename_confirmed": false,
+      "drive_file_id": null,
+      "drive_url": null,
+      "human_renamed_after_generation": true,
+      "pending_exact_drive_filename_from_human": true,
+      "contains": [
+        "ASSET_MANIFEST.csv",
+        "COPY/facebook-campaign-manifest.json",
+        "COPY/facebook-calendar.json",
+        "COPY/facebook-calendar.csv",
+        "COPY/facebook-shorts-plan.json",
+        "COPY/postiz-draft-import.json",
+        "README.md",
+        "VERIFICATION.json"
+      ]
+    }
+  ],
+  "agent_rules": [
+    "Use package_id as the durable internal reference.",
+    "Use canonical_filename for exact Google Drive search unless a registered alias is marked as the current Drive filename.",
+    "Never invent or normalize a human-renamed filename.",
+    "When the user supplies the exact Facebook Drive filename, update this registry immediately and retain ASC3ND_FACEBOOK_30_DAY_CAMPAIGN.zip as an alias.",
+    "Do not schedule or publish Postiz records directly from a ZIP without reading its manifest and approval state."
+  ]
+}
